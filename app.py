@@ -26,7 +26,6 @@ def generate_otp(length: int = 6) -> str:
 def send_otp_email(to_email: str, otp: str) -> bool:
     """Send OTP via SMTP using Streamlit secrets."""
     try:
-        # Check if smtp secrets exist
         if "smtp" not in st.secrets:
             st.error(
                 "SMTP secrets are missing!\n\n"
@@ -35,7 +34,7 @@ def send_otp_email(to_email: str, otp: str) -> bool:
                 "```toml\n"
                 "[smtp]\n"
                 'server = "smtp.gmail.com"\n'
-                "port = 587\n"
+                "port = 465\n"
                 'email = "your-email@gmail.com"\n'
                 'password = "your-app-password"\n'
                 'name = "Image to Video App"\n'
@@ -67,10 +66,20 @@ If you did not request this code, please ignore this email.
 """
         msg.attach(MIMEText(body, "plain"))
 
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.send_message(msg)
+        # Use the correct connection method based on port
+        if smtp_port == 465:
+            # SSL connection (recommended for Gmail)
+            with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
+        else:
+            # STARTTLS (port 587)
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
 
         return True
 
