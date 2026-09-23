@@ -5,20 +5,25 @@ import string
 import time
 import tempfile
 import os
+
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
 from PIL import Image
 import numpy as np
+
 from moviepy.editor import ImageClip
-from moviepy.video.fx.all import resize
+
 
 # ====================== PAGE CONFIG ======================
+
 st.set_page_config(
     page_title="Image → Video Generator",
     page_icon="🎬",
     layout="centered",
     initial_sidebar_state="collapsed"
 )
+
 
 # ====================== HELPER FUNCTIONS ======================
 
@@ -27,30 +32,36 @@ def generate_otp(length: int = 6) -> str:
 
 
 def send_otp_email(to_email: str, otp: str) -> bool:
-    """Send OTP via SMTP. Credentials come from Streamlit secrets."""
+    """Send OTP via SMTP using Streamlit secrets."""
+
     try:
         smtp_server = st.secrets["smtp"]["server"]
         smtp_port = st.secrets["smtp"]["port"]
         sender_email = st.secrets["smtp"]["email"]
         sender_password = st.secrets["smtp"]["password"]
-        sender_name = st.secrets["smtp"].get("name", "Image to Video App")
+        sender_name = st.secrets["smtp"].get(
+            "name",
+            "Image to Video App"
+        )
 
         msg = MIMEMultipart()
+
         msg["From"] = f"{sender_name} <{sender_email}>"
         msg["To"] = to_email
-        msg["Subject"] = "Your Verification Code - Image to Video"
+        msg["Subject"] = "Your Verification Code"
 
         body = f"""
-        Hello!
+Hello!
 
-        Your verification code is:
+Your verification code is:
 
-        👉  {otp}  👈
+{otp}
 
-        This code will expire in 10 minutes.
+This code expires in 10 minutes.
 
-        If you did not request this, please ignore this email.
-        """
+If you did not request this code, please ignore this email.
+"""
+
         msg.attach(MIMEText(body, "plain"))
 
         with smtplib.SMTP(smtp_server, smtp_port) as server:
@@ -59,51 +70,48 @@ def send_otp_email(to_email: str, otp: str) -> bool:
             server.send_message(msg)
 
         return True
+
     except Exception as e:
         st.error(f"Failed to send email: {e}")
         return False
 
 
 def create_video_from_image(
-    image: Image.Image,
-    duration: float = 6.0,
-    zoom_factor: float = 1.35,
-    fps: int = 24
-) -> str:
-    """Create a Ken Burns style video from a single image."""
+        image: Image.Image,
+        duration: float = 6.0,
+        zoom_factor: float = 1.35,
+        fps: int = 24
+):
+    """
+    Create a simple Ken Burns zoom video.
+    """
+
     img_array = np.array(image.convert("RGB"))
-    clip = ImageClip(img_array).set_duration(duration)
-    w, h = clip.size
 
-    def make_frame(t):
-        progress = t / duration
-        current_zoom = 1.0 + (zoom_factor - 1.0) * progress
-        x_offset = int((w * (current_zoom - 1)) * 0.3 * progress)
-        y_offset = int((h * (current_zoom - 1)) * 0.2 * progress)
+    clip = (
+        ImageClip(img_array)
+        .set_duration(duration)
+        .resize(
+            lambda t: 1 + (zoom_factor - 1) * (t / duration)
+        )
+    )
 
-        new_w = int(w * current_zoom)
-        new_h = int(h * current_zoom)
-        resized = resize(clip, newsize=(new_w, new_h)).get_frame(t)
+    temp_file = tempfile.NamedTemporaryFile(
+        suffix=".mp4",
+        delete=False
+    )
 
-        x1 = min(max(x_offset, 0), new_w - w)
-        y1 = min(max(y_offset, 0), new_h - h)
-        return resized[y1:y1 + h, x1:x1 + w]
-
-    animated = clip.fl(lambda gf, t: make_frame(t), apply_to=["mask"])
-
-    temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
     output_path = temp_file.name
     temp_file.close()
 
-    animated.write_videofile(
+    clip.write_videofile(
         output_path,
         fps=fps,
         codec="libx264",
         audio=False,
-        preset="medium",
-        threads=4,
         logger=None
     )
+
     return output_path
 
 
@@ -111,12 +119,16 @@ def create_video_from_image(
 
 if "verified" not in st.session_state:
     st.session_state.verified = False
+
 if "otp" not in st.session_state:
     st.session_state.otp = None
+
 if "otp_time" not in st.session_state:
     st.session_state.otp_time = None
+
 if "email" not in st.session_state:
     st.session_state.email = ""
+
 if "video_path" not in st.session_state:
     st.session_state.video_path = None
 
@@ -124,111 +136,238 @@ if "video_path" not in st.session_state:
 # ====================== UI ======================
 
 st.title("🖼️ → 🎬 Image to Video Generator")
-st.markdown("Upload a photo → get a cinematic video. Email verification required.")
 
-# ---------- STEP 1: EMAIL VERIFICATION ----------
+st.markdown(
+    "Upload an image and generate a cinematic zoom video."
+)
+
+# ==================================================
+# STEP 1 - EMAIL VERIFICATION
+# ==================================================
+
 if not st.session_state.verified:
-    st.subheader("🔐 Step 1: Verify your email")
 
-    email = st.text_input("Enter your email address", value=st.session_state.email, placeholder="you@example.com")
+    st.subheader("🔐 Step 1: Verify Email")
+
+    email = st.text_input(
+        "Email Address",
+        value=st.session_state.email,
+        placeholder="you@example.com"
+    )
 
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("Send OTP", use_container_width=True):
+
+        if st.button(
+            "Send OTP",
+            use_container_width=True
+        ):
+
             if not email or "@" not in email:
-                st.warning("Please enter a valid email address.")
+
+                st.warning(
+                    "Please enter a valid email address."
+                )
+
             else:
+
                 otp = generate_otp()
+
                 st.session_state.otp = otp
                 st.session_state.otp_time = time.time()
                 st.session_state.email = email
 
                 with st.spinner("Sending OTP..."):
-                    success = send_otp_email(email, otp)
+
+                    success = send_otp_email(
+                        email,
+                        otp
+                    )
 
                 if success:
-                    st.success(f"OTP sent to **{email}**! Check your inbox (and spam).")
-                else:
-                    st.error("Could not send email. Please check your SMTP settings.")
+                    st.success(
+                        f"OTP sent to {email}"
+                    )
 
     with col2:
-        if st.button("Clear", use_container_width=True):
+
+        if st.button(
+            "Clear",
+            use_container_width=True
+        ):
             st.session_state.otp = None
             st.session_state.otp_time = None
             st.session_state.email = ""
+
             st.rerun()
 
     if st.session_state.otp:
+
         st.markdown("---")
-        user_otp = st.text_input("Enter the 6-digit OTP you received", max_chars=6)
 
-        if st.button("Verify OTP", type="primary", use_container_width=True):
-            # Check expiry (10 minutes)
-            if time.time() - st.session_state.otp_time > 600:
-                st.error("OTP has expired. Please request a new one.")
+        entered_otp = st.text_input(
+            "Enter OTP",
+            max_chars=6
+        )
+
+        if st.button(
+            "Verify OTP",
+            type="primary",
+            use_container_width=True
+        ):
+
+            if (
+                time.time()
+                - st.session_state.otp_time
+                > 600
+            ):
+                st.error(
+                    "OTP expired. Request a new one."
+                )
                 st.session_state.otp = None
-            elif user_otp.strip() == st.session_state.otp:
-                st.session_state.verified = True
-                st.success("✅ Email verified successfully!")
-                st.balloons()
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("Incorrect OTP. Please try again.")
 
-# ---------- STEP 2: UPLOAD + GENERATE ----------
+            elif (
+                entered_otp.strip()
+                == st.session_state.otp
+            ):
+                st.session_state.verified = True
+
+                st.success(
+                    "Email verified successfully!"
+                )
+
+                st.balloons()
+
+                time.sleep(1)
+
+                st.rerun()
+
+            else:
+                st.error("Incorrect OTP.")
+
+
+# ==================================================
+# STEP 2 - IMAGE UPLOAD + VIDEO GENERATION
+# ==================================================
+
 else:
-    st.success(f"Verified as: **{st.session_state.email}**")
-    if st.button("Logout / Change email"):
+
+    st.success(
+        f"Verified as: {st.session_state.email}"
+    )
+
+    if st.button("Logout / Change Email"):
+
         st.session_state.verified = False
         st.session_state.otp = None
         st.session_state.video_path = None
+
         st.rerun()
 
     st.markdown("---")
-    st.subheader("📤 Step 2: Upload image & generate video")
+
+    st.subheader(
+        "📤 Step 2: Upload Image"
+    )
 
     uploaded_file = st.file_uploader(
         "Choose an image",
-        type=["jpg", "jpeg", "png", "webp"],
-        help="Best results with high-resolution landscape photos"
+        type=["jpg", "jpeg", "png", "webp"]
     )
 
     col_a, col_b = st.columns(2)
+
     with col_a:
-        duration = st.slider("Video duration (seconds)", 3.0, 12.0, 6.0, 0.5)
+
+        duration = st.slider(
+            "Duration (seconds)",
+            3.0,
+            12.0,
+            6.0,
+            0.5
+        )
+
     with col_b:
-        zoom = st.slider("Zoom intensity", 1.1, 2.0, 1.35, 0.05)
 
-    if uploaded_file is not None:
+        zoom = st.slider(
+            "Zoom",
+            1.1,
+            2.0,
+            1.35,
+            0.05
+        )
+
+    if uploaded_file:
+
         image = Image.open(uploaded_file)
-        st.image(image, caption="Preview", use_container_width=True)
 
-        if st.button("🎬 Generate Video", type="primary", use_container_width=True):
-            with st.spinner("Generating your video... this may take 10–30 seconds"):
-                try:
-                    video_path = create_video_from_image(image, duration=duration, zoom_factor=zoom)
-                    st.session_state.video_path = video_path
-                    st.success("Video generated successfully!")
-                except Exception as e:
-                    st.error(f"Error generating video: {e}")
+        st.image(
+            image,
+            caption="Preview",
+            use_container_width=True
+        )
 
-    # ---------- STEP 3: DOWNLOAD ----------
-    if st.session_state.video_path and os.path.exists(st.session_state.video_path):
+        if st.button(
+            "🎬 Generate Video",
+            type="primary",
+            use_container_width=True
+        ):
+
+            try:
+
+                with st.spinner(
+                    "Generating video..."
+                ):
+
+                    video_path = create_video_from_image(
+                        image=image,
+                        duration=duration,
+                        zoom_factor=zoom
+                    )
+
+                st.session_state.video_path = video_path
+
+                st.success(
+                    "Video generated successfully!"
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"Video generation failed: {e}"
+                )
+
+    # ===================================
+    # DOWNLOAD SECTION
+    # ===================================
+
+    if (
+        st.session_state.video_path
+        and os.path.exists(
+            st.session_state.video_path
+        )
+    ):
+
         st.markdown("---")
-        st.subheader("📥 Your Video is Ready")
 
-        # Show the video
-        st.video(st.session_state.video_path)
+        st.subheader(
+            "📥 Download Video"
+        )
 
-        # Download button
-        with open(st.session_state.video_path, "rb") as f:
-            video_bytes = f.read()
+        st.video(
+            st.session_state.video_path
+        )
+
+        with open(
+            st.session_state.video_path,
+            "rb"
+        ) as f:
+            video_data = f.read()
 
         st.download_button(
-            label="⬇️ Download Video (MP4)",
-            data=video_bytes,
+            label="⬇️ Download MP4",
+            data=video_data,
             file_name="generated_video.mp4",
             mime="video/mp4",
             use_container_width=True
