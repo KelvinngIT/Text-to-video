@@ -8,3 +8,4 @@ gTTS
 pytesseract
 requests
 beautifulsoup4
+reportlab
