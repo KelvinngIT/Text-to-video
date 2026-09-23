@@ -4,3 +4,5 @@ numpy
 pillow
 imageio
 imageio-ffmpeg
+gTTS
+pytesseract
