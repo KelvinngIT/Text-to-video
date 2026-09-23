@@ -6,3 +6,5 @@ imageio
 imageio-ffmpeg
 gTTS
 pytesseract
+requests
+beautifulsoup4
