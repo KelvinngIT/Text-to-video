@@ -5,6 +5,9 @@ import string
 import time
 import tempfile
 import os
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from PIL import Image
@@ -12,6 +15,7 @@ import numpy as np
 from moviepy.editor import ImageClip
 from gtts import gTTS
 import pytesseract
+from io import BytesIO
 
 # ====================== PAGE CONFIG ======================
 st.set_page_config(
@@ -123,6 +127,60 @@ def text_to_audio(text: str, lang: str = "en") -> str:
         st.error(f"Text-to-Speech failed: {e}")
         return None
 
+def scrape_website(url: str):
+    """
+    Scrape text and images from a website.
+    Returns: (title, text_content, list_of_image_urls)
+    """
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Get title
+        title = soup.title.string.strip() if soup.title else "No Title"
+
+        # Remove script and style elements
+        for script in soup(["script", "style", "noscript"]):
+            script.decompose()
+
+        # Extract text
+        text = soup.get_text(separator="\n", strip=True)
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        clean_text = "\n".join(lines)
+
+        # Extract image URLs
+        image_urls = []
+        for img in soup.find_all("img"):
+            src = img.get("src") or img.get("data-src")
+            if src:
+                full_url = urljoin(url, src)
+                if full_url.startswith("http") and full_url not in image_urls:
+                    image_urls.append(full_url)
+
+        return title, clean_text, image_urls
+
+    except Exception as e:
+        st.error(f"Failed to scrape website: {e}")
+        return None, None, []
+
+def download_image(url: str):
+    """Download an image and return it as bytes + PIL Image."""
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        img = Image.open(BytesIO(response.content))
+        return response.content, img
+    except Exception:
+        return None, None
+
 # ====================== SESSION STATE ======================
 if "verified" not in st.session_state:
     st.session_state.verified = False
@@ -136,10 +194,14 @@ if "video_path" not in st.session_state:
     st.session_state.video_path = None
 if "audio_path" not in st.session_state:
     st.session_state.audio_path = None
+if "scraped_text" not in st.session_state:
+    st.session_state.scraped_text = None
+if "scraped_images" not in st.session_state:
+    st.session_state.scraped_images = []
 
 # ====================== UI ======================
 st.title("🎬 AI Media Tools")
-st.markdown("Image → Video • Image → Text • Text → Audio")
+st.markdown("Image → Video • Image → Text • Text → Audio • Website Scraper")
 
 # ==================================================
 # STEP 1 - EMAIL VERIFICATION
@@ -206,12 +268,19 @@ else:
         st.session_state.otp = None
         st.session_state.video_path = None
         st.session_state.audio_path = None
+        st.session_state.scraped_text = None
+        st.session_state.scraped_images = []
         st.rerun()
 
     st.markdown("---")
 
-    # Tabs for different tools
-    tab1, tab2, tab3 = st.tabs(["🎬 Image → Video", "📝 Image → Text", "🔊 Text → Audio"])
+    # Tabs
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "🎬 Image → Video",
+        "📝 Image → Text",
+        "🔊 Text → Audio",
+        "🌐 Website Scraper"
+    ])
 
     # ==================== TAB 1: Image to Video ====================
     with tab1:
@@ -344,3 +413,68 @@ else:
                 mime="audio/mp3",
                 use_container_width=True
             )
+
+    # ==================== TAB 4: Website Scraper ====================
+    with tab4:
+        st.subheader("🌐 Scrape Text & Images from Website")
+
+        url = st.text_input(
+            "Enter website URL",
+            placeholder="https://example.com"
+        )
+
+        if st.button("🔍 Scrape Website", type="primary", use_container_width=True):
+            if not url or not url.startswith("http"):
+                st.warning("Please enter a valid URL starting with http:// or https://")
+            else:
+                with st.spinner("Scraping website..."):
+                    title, text, image_urls = scrape_website(url)
+
+                if text:
+                    st.session_state.scraped_text = text
+                    st.session_state.scraped_images = image_urls
+                    st.success(f"Successfully scraped: **{title}**")
+                    st.info(f"Found {len(image_urls)} images")
+
+        # Show scraped text
+        if st.session_state.scraped_text:
+            st.markdown("---")
+            st.markdown("### 📄 Extracted Text")
+            st.text_area("Website Text", value=st.session_state.scraped_text, height=300)
+
+            st.download_button(
+                label="⬇️ Download Text (.txt)",
+                data=st.session_state.scraped_text,
+                file_name="website_text.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+
+        # Show and download images
+        if st.session_state.scraped_images:
+            st.markdown("---")
+            st.markdown(f"### 🖼️ Found Images ({len(st.session_state.scraped_images)})")
+
+            for idx, img_url in enumerate(st.session_state.scraped_images[:20]):  # limit to 20
+                col1, col2 = st.columns([3, 1])
+
+                with col1:
+                    st.caption(img_url)
+
+                with col2:
+                    img_bytes, img = download_image(img_url)
+                    if img_bytes and img:
+                        st.image(img, width=120)
+
+                        # Get file extension
+                        ext = os.path.splitext(urlparse(img_url).path)[1] or ".jpg"
+                        if ext.lower() not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+                            ext = ".jpg"
+
+                        st.download_button(
+                            label="⬇️ Download",
+                            data=img_bytes,
+                            file_name=f"image_{idx+1}{ext}",
+                            mime=f"image/{ext[1:]}",
+                            key=f"img_download_{idx}"
+                        )
