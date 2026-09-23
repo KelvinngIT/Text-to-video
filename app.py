@@ -24,22 +24,10 @@ def generate_otp(length: int = 6) -> str:
     return "".join(random.choices(string.digits, k=length))
 
 def send_otp_email(to_email: str, otp: str) -> bool:
-    """Send OTP via SMTP using Streamlit secrets."""
+    """Send OTP via SMTP using Streamlit secrets (with better debugging)."""
     try:
         if "smtp" not in st.secrets:
-            st.error(
-                "SMTP secrets are missing!\n\n"
-                "Please add the following to `.streamlit/secrets.toml` (local) "
-                "or in the Secrets section on Streamlit Cloud:\n\n"
-                "```toml\n"
-                "[smtp]\n"
-                'server = "smtp.gmail.com"\n'
-                "port = 465\n"
-                'email = "your-email@gmail.com"\n'
-                'password = "your-app-password"\n'
-                'name = "Image to Video App"\n'
-                "```"
-            )
+            st.error("SMTP secrets are missing!")
             return False
 
         smtp_server = st.secrets["smtp"]["server"]
@@ -47,6 +35,9 @@ def send_otp_email(to_email: str, otp: str) -> bool:
         sender_email = st.secrets["smtp"]["email"]
         sender_password = st.secrets["smtp"]["password"]
         sender_name = st.secrets["smtp"].get("name", "Image to Video App")
+
+        # Debug info (will show in the app)
+        st.info(f"Trying to connect to {smtp_server}:{smtp_port} as {sender_email}")
 
         msg = MIMEMultipart()
         msg["From"] = f"{sender_name} <{sender_email}>"
@@ -66,25 +57,29 @@ If you did not request this code, please ignore this email.
 """
         msg.attach(MIMEText(body, "plain"))
 
-        # Use the correct connection method based on port
+        # Try different connection methods
         if smtp_port == 465:
-            # SSL connection (recommended for Gmail)
-            with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
-                server.login(sender_email, sender_password)
-                server.send_message(msg)
+            server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30)
         else:
-            # STARTTLS (port 587)
-            with smtplib.SMTP(smtp_server, smtp_port) as server:
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                server.login(sender_email, sender_password)
-                server.send_message(msg)
+            server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
 
         return True
 
+    except smtplib.SMTPAuthenticationError as e:
+        st.error(f"Authentication failed: {e}\n\n→ Most likely wrong password. Use a Google App Password.")
+        return False
+    except smtplib.SMTPConnectError as e:
+        st.error(f"Connection error: {e}")
+        return False
     except Exception as e:
-        st.error(f"Failed to send email: {e}")
+        st.error(f"Failed to send email: {type(e).__name__}: {e}")
         return False
 
 def create_video_from_image(
