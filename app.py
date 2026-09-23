@@ -261,33 +261,15 @@ else:
             )
 
     # ==================== TAB 2: Image to Text ====================
-    with tab2:
-        st.subheader("Upload Image → Extract Text (OCR)")
-
-        ocr_file = st.file_uploader(
-            "Choose an image containing text",
-            type=["jpg", "jpeg", "png", "webp"],
-            key="ocr_uploader"
-        )
-
-        if ocr_file:
-            image = Image.open(ocr_file)
-            st.image(image, caption="Uploaded Image", use_container_width=True)
-
-            if st.button("📝 Extract Text", type="primary", use_container_width=True):
-                with st.spinner("Extracting text..."):
-                    extracted_text = image_to_text(image)
-
-                st.markdown("### Extracted Text:")
-                st.text_area("Result", value=extracted_text, height=250)
-
-                st.download_button(
-                    label="⬇️ Download Text",
-                    data=extracted_text,
-                    file_name="extracted_text.txt",
-                    mime="text/plain",
-                    use_container_width=True
-                )
+def image_to_text(image: Image.Image) -> str:
+    """Extract text from image using OCR (pytesseract)."""
+    try:
+        text = pytesseract.image_to_string(image)
+        return text.strip() if text.strip() else "No text detected in the image."
+    except pytesseract.TesseractNotFoundError:
+        return "OCR Error: Tesseract is not installed. Please add 'tesseract-ocr' to packages.txt"
+    except Exception as e:
+        return f"OCR Error: {e}"
 
     # ==================== TAB 3: Text to Audio ====================
     with tab3:
