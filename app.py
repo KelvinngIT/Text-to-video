@@ -10,10 +10,12 @@ from email.mime.multipart import MIMEMultipart
 from PIL import Image
 import numpy as np
 from moviepy.editor import ImageClip
+from gtts import gTTS
+import pytesseract
 
 # ====================== PAGE CONFIG ======================
 st.set_page_config(
-    page_title="Image → Video Generator",
+    page_title="AI Media Tools",
     page_icon="🎬",
     layout="centered",
     initial_sidebar_state="collapsed"
@@ -24,7 +26,7 @@ def generate_otp(length: int = 6) -> str:
     return "".join(random.choices(string.digits, k=length))
 
 def send_otp_email(to_email: str, otp: str) -> bool:
-    """Send OTP via SMTP using Streamlit secrets (with better debugging)."""
+    """Send OTP via SMTP using Streamlit secrets."""
     try:
         if "smtp" not in st.secrets:
             st.error("SMTP secrets are missing!")
@@ -34,10 +36,7 @@ def send_otp_email(to_email: str, otp: str) -> bool:
         smtp_port = int(st.secrets["smtp"]["port"])
         sender_email = st.secrets["smtp"]["email"]
         sender_password = st.secrets["smtp"]["password"]
-        sender_name = st.secrets["smtp"].get("name", "Image to Video App")
-
-        # Debug info (will show in the app)
-        st.info(f"Trying to connect to {smtp_server}:{smtp_port} as {sender_email}")
+        sender_name = st.secrets["smtp"].get("name", "AI Media Tools")
 
         msg = MIMEMultipart()
         msg["From"] = f"{sender_name} <{sender_email}>"
@@ -57,40 +56,29 @@ If you did not request this code, please ignore this email.
 """
         msg.attach(MIMEText(body, "plain"))
 
-        # Try different connection methods
         if smtp_port == 465:
-            server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30)
+            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=30) as server:
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
         else:
-            server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-
-        server.login(sender_email, sender_password)
-        server.send_message(msg)
-        server.quit()
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
 
         return True
 
-    except smtplib.SMTPAuthenticationError as e:
-        st.error(f"Authentication failed: {e}\n\n→ Most likely wrong password. Use a Google App Password.")
-        return False
-    except smtplib.SMTPConnectError as e:
-        st.error(f"Connection error: {e}")
+    except smtplib.SMTPAuthenticationError:
+        st.error("Authentication failed. Please use a Google App Password.")
         return False
     except Exception as e:
         st.error(f"Failed to send email: {type(e).__name__}: {e}")
         return False
 
-def create_video_from_image(
-    image: Image.Image,
-    duration: float = 6.0,
-    zoom_factor: float = 1.35,
-    fps: int = 24
-):
-    """
-    Create a simple Ken Burns zoom video.
-    """
+def create_video_from_image(image: Image.Image, duration: float = 6.0, zoom_factor: float = 1.35, fps: int = 24):
+    """Create a simple Ken Burns zoom video."""
     img_array = np.array(image.convert("RGB"))
 
     clip = (
@@ -110,8 +98,28 @@ def create_video_from_image(
         audio=False,
         logger=None
     )
-
     return output_path
+
+def image_to_text(image: Image.Image) -> str:
+    """Extract text from image using OCR (pytesseract)."""
+    try:
+        text = pytesseract.image_to_string(image)
+        return text.strip() if text.strip() else "No text detected in the image."
+    except Exception as e:
+        return f"OCR Error: {e}"
+
+def text_to_audio(text: str, lang: str = "en") -> str:
+    """Convert text to speech and return the path of the MP3 file."""
+    try:
+        tts = gTTS(text=text, lang=lang)
+        temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        output_path = temp_file.name
+        temp_file.close()
+        tts.save(output_path)
+        return output_path
+    except Exception as e:
+        st.error(f"Text-to-Speech failed: {e}")
+        return None
 
 # ====================== SESSION STATE ======================
 if "verified" not in st.session_state:
@@ -124,10 +132,12 @@ if "email" not in st.session_state:
     st.session_state.email = ""
 if "video_path" not in st.session_state:
     st.session_state.video_path = None
+if "audio_path" not in st.session_state:
+    st.session_state.audio_path = None
 
 # ====================== UI ======================
-st.title("🖼️ → 🎬 Image to Video Generator")
-st.markdown("Upload an image and generate a cinematic zoom video.")
+st.title("🎬 AI Media Tools")
+st.markdown("Image → Video • Image → Text • Text → Audio")
 
 # ==================================================
 # STEP 1 - EMAIL VERIFICATION
@@ -184,7 +194,7 @@ if not st.session_state.verified:
                 st.error("Incorrect OTP.")
 
 # ==================================================
-# STEP 2 - IMAGE UPLOAD + VIDEO GENERATION
+# STEP 2 - MAIN TOOLS
 # ==================================================
 else:
     st.success(f"Verified as: {st.session_state.email}")
@@ -193,55 +203,142 @@ else:
         st.session_state.verified = False
         st.session_state.otp = None
         st.session_state.video_path = None
+        st.session_state.audio_path = None
         st.rerun()
 
     st.markdown("---")
-    st.subheader("📤 Step 2: Upload Image")
 
-    uploaded_file = st.file_uploader(
-        "Choose an image",
-        type=["jpg", "jpeg", "png", "webp"]
-    )
+    # Tabs for different tools
+    tab1, tab2, tab3 = st.tabs(["🎬 Image → Video", "📝 Image → Text", "🔊 Text → Audio"])
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        duration = st.slider("Duration (seconds)", 3.0, 12.0, 6.0, 0.5)
-    with col_b:
-        zoom = st.slider("Zoom", 1.1, 2.0, 1.35, 0.05)
+    # ==================== TAB 1: Image to Video ====================
+    with tab1:
+        st.subheader("Upload Image → Generate Zoom Video")
 
-    if uploaded_file:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Preview", use_container_width=True)
-
-        if st.button("🎬 Generate Video", type="primary", use_container_width=True):
-            try:
-                with st.spinner("Generating video..."):
-                    video_path = create_video_from_image(
-                        image=image,
-                        duration=duration,
-                        zoom_factor=zoom
-                    )
-                st.session_state.video_path = video_path
-                st.success("Video generated successfully!")
-            except Exception as e:
-                st.error(f"Video generation failed: {e}")
-
-    # ===================================
-    # DOWNLOAD SECTION
-    # ===================================
-    if st.session_state.video_path and os.path.exists(st.session_state.video_path):
-        st.markdown("---")
-        st.subheader("📥 Download Video")
-
-        st.video(st.session_state.video_path)
-
-        with open(st.session_state.video_path, "rb") as f:
-            video_data = f.read()
-
-        st.download_button(
-            label="⬇️ Download MP4",
-            data=video_data,
-            file_name="generated_video.mp4",
-            mime="video/mp4",
-            use_container_width=True
+        uploaded_file = st.file_uploader(
+            "Choose an image",
+            type=["jpg", "jpeg", "png", "webp"],
+            key="video_uploader"
         )
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            duration = st.slider("Duration (seconds)", 3.0, 12.0, 6.0, 0.5)
+        with col_b:
+            zoom = st.slider("Zoom", 1.1, 2.0, 1.35, 0.05)
+
+        if uploaded_file:
+            image = Image.open(uploaded_file)
+            st.image(image, caption="Preview", use_container_width=True)
+
+            if st.button("🎬 Generate Video", type="primary", use_container_width=True):
+                try:
+                    with st.spinner("Generating video..."):
+                        video_path = create_video_from_image(
+                            image=image,
+                            duration=duration,
+                            zoom_factor=zoom
+                        )
+                    st.session_state.video_path = video_path
+                    st.success("Video generated successfully!")
+                except Exception as e:
+                    st.error(f"Video generation failed: {e}")
+
+        if st.session_state.video_path and os.path.exists(st.session_state.video_path):
+            st.markdown("---")
+            st.subheader("📥 Download Video")
+            st.video(st.session_state.video_path)
+
+            with open(st.session_state.video_path, "rb") as f:
+                video_data = f.read()
+
+            st.download_button(
+                label="⬇️ Download MP4",
+                data=video_data,
+                file_name="generated_video.mp4",
+                mime="video/mp4",
+                use_container_width=True
+            )
+
+    # ==================== TAB 2: Image to Text ====================
+    with tab2:
+        st.subheader("Upload Image → Extract Text (OCR)")
+
+        ocr_file = st.file_uploader(
+            "Choose an image containing text",
+            type=["jpg", "jpeg", "png", "webp"],
+            key="ocr_uploader"
+        )
+
+        if ocr_file:
+            image = Image.open(ocr_file)
+            st.image(image, caption="Uploaded Image", use_container_width=True)
+
+            if st.button("📝 Extract Text", type="primary", use_container_width=True):
+                with st.spinner("Extracting text..."):
+                    extracted_text = image_to_text(image)
+
+                st.markdown("### Extracted Text:")
+                st.text_area("Result", value=extracted_text, height=250)
+
+                st.download_button(
+                    label="⬇️ Download Text",
+                    data=extracted_text,
+                    file_name="extracted_text.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+
+    # ==================== TAB 3: Text to Audio ====================
+    with tab3:
+        st.subheader("Convert Text → Speech (Audio)")
+
+        text_input = st.text_area(
+            "Enter the text you want to convert to speech",
+            height=150,
+            placeholder="Type or paste your text here..."
+        )
+
+        lang = st.selectbox(
+            "Language",
+            options=["en", "zh-cn", "zh-tw", "ja", "ko", "es", "fr", "de", "hi"],
+            format_func=lambda x: {
+                "en": "English",
+                "zh-cn": "Chinese (Simplified)",
+                "zh-tw": "Chinese (Traditional)",
+                "ja": "Japanese",
+                "ko": "Korean",
+                "es": "Spanish",
+                "fr": "French",
+                "de": "German",
+                "hi": "Hindi"
+            }.get(x, x)
+        )
+
+        if st.button("🔊 Generate Audio", type="primary", use_container_width=True):
+            if not text_input.strip():
+                st.warning("Please enter some text.")
+            else:
+                with st.spinner("Generating audio..."):
+                    audio_path = text_to_audio(text_input, lang=lang)
+
+                if audio_path:
+                    st.session_state.audio_path = audio_path
+                    st.success("Audio generated successfully!")
+
+        if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
+            st.markdown("---")
+            st.subheader("🎧 Listen / Download")
+
+            st.audio(st.session_state.audio_path, format="audio/mp3")
+
+            with open(st.session_state.audio_path, "rb") as f:
+                audio_data = f.read()
+
+            st.download_button(
+                label="⬇️ Download MP3",
+                data=audio_data,
+                file_name="speech.mp3",
+                mime="audio/mp3",
+                use_container_width=True
+            )
