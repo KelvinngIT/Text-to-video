@@ -121,8 +121,8 @@ def text_to_audio(text: str, lang: str = "en") -> str:
 
 def scrape_website(url: str):
     """
-    Scrape text and images from a website.
-    Returns: (title, text_content, list_of_image_urls)
+    Scrape text, images and PDF links from a website.
+    Returns: (title, text_content, list_of_image_urls, list_of_pdf_urls)
     """
     try:
         headers = {
@@ -131,16 +131,20 @@ def scrape_website(url: str):
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
-        # Get title
+
+        # Title
         title = soup.title.string.strip() if soup.title else "No Title"
-        # Remove script and style elements
+
+        # Remove script / style
         for script in soup(["script", "style", "noscript"]):
             script.decompose()
-        # Extract text
+
+        # Text
         text = soup.get_text(separator="\n", strip=True)
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         clean_text = "\n".join(lines)
-        # Extract image URLs
+
+        # Images
         image_urls = []
         for img in soup.find_all("img"):
             src = img.get("src") or img.get("data-src")
@@ -148,10 +152,22 @@ def scrape_website(url: str):
                 full_url = urljoin(url, src)
                 if full_url.startswith("http") and full_url not in image_urls:
                     image_urls.append(full_url)
-        return title, clean_text, image_urls
+
+        # PDFs – look for <a> tags whose href ends with .pdf
+        pdf_urls = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"].strip()
+            full_url = urljoin(url, href)
+            # Accept only real http(s) links that end with .pdf (case-insensitive)
+            if full_url.lower().endswith(".pdf") and full_url.startswith("http"):
+                if full_url not in pdf_urls:
+                    pdf_urls.append(full_url)
+
+        return title, clean_text, image_urls, pdf_urls
+
     except Exception as e:
         st.error(f"Failed to scrape website: {e}")
-        return None, None, []
+        return None, None, [], []
 
 def download_image(url: str):
     """Download an image and return it as bytes + PIL Image."""
@@ -166,6 +182,24 @@ def download_image(url: str):
     except Exception:
         return None, None
 
+def download_file(url: str, timeout: int = 20):
+    """Generic file downloader – returns (bytes, filename) or (None, None)."""
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=timeout, stream=True)
+        response.raise_for_status()
+        # Try to get a nice filename from Content-Disposition or from the URL
+        filename = os.path.basename(urlparse(url).path) or "file.pdf"
+        if "content-disposition" in response.headers:
+            cd = response.headers["content-disposition"]
+            if "filename=" in cd:
+                filename = cd.split("filename=")[-1].strip().strip('"')
+        return response.content, filename
+    except Exception:
+        return None, None
+
 def create_pdf(text: str, title: str = "Document") -> bytes:
     """Generate a simple PDF from text and return as bytes."""
     buffer = BytesIO()
@@ -176,17 +210,17 @@ def create_pdf(text: str, title: str = "Document") -> bytes:
     story = []
     story.append(Paragraph(title, styles["Title"]))
     story.append(Spacer(1, 12))
-    # Split long text into paragraphs
     for para in text.split("\n"):
         if para.strip():
-            story.append(Paragraph(para.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"), styles["Normal"]))
+            safe = para.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            story.append(Paragraph(safe, styles["Normal"]))
             story.append(Spacer(1, 6))
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
 
 def create_zip_from_images(selected_urls: list) -> bytes:
-    """Download selected images and pack them into a ZIP file (returned as bytes)."""
+    """Download selected images and pack them into a ZIP."""
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for idx, img_url in enumerate(selected_urls):
@@ -196,6 +230,20 @@ def create_zip_from_images(selected_urls: list) -> bytes:
                 if ext.lower() not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
                     ext = ".jpg"
                 zf.writestr(f"image_{idx+1}{ext}", img_bytes)
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
+def create_zip_from_pdfs(selected_urls: list) -> bytes:
+    """Download selected PDFs and pack them into a ZIP."""
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for idx, pdf_url in enumerate(selected_urls):
+            content, filename = download_file(pdf_url)
+            if content:
+                # Make sure filename ends with .pdf
+                if not filename.lower().endswith(".pdf"):
+                    filename = f"document_{idx+1}.pdf"
+                zf.writestr(filename, content)
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
 
@@ -216,6 +264,8 @@ if "scraped_text" not in st.session_state:
     st.session_state.scraped_text = None
 if "scraped_images" not in st.session_state:
     st.session_state.scraped_images = []
+if "scraped_pdfs" not in st.session_state:
+    st.session_state.scraped_pdfs = []
 if "scraped_title" not in st.session_state:
     st.session_state.scraped_title = "Website Content"
 
@@ -281,10 +331,11 @@ else:
         st.session_state.audio_path = None
         st.session_state.scraped_text = None
         st.session_state.scraped_images = []
+        st.session_state.scraped_pdfs = []
         st.session_state.scraped_title = "Website Content"
         st.rerun()
     st.markdown("---")
-    # Tabs
+
     tab1, tab2, tab3, tab4 = st.tabs([
         "🎬 Image → Video",
         "📝 Image → Text",
@@ -348,11 +399,10 @@ else:
             if st.button("📝 Extract Text", type="primary", use_container_width=True):
                 with st.spinner("Extracting text..."):
                     extracted_text = image_to_text(image)
-                st.session_state.ocr_text = extracted_text   # store for download
+                st.session_state.ocr_text = extracted_text
                 st.markdown("### Extracted Text:")
                 st.text_area("Result", value=extracted_text, height=250, key="ocr_result")
 
-            # Download options (appear after extraction)
             if "ocr_text" in st.session_state and st.session_state.ocr_text:
                 st.markdown("#### Download Options")
                 col_txt, col_pdf = st.columns(2)
@@ -422,7 +472,7 @@ else:
 
     # ==================== TAB 4: Website Scraper ====================
     with tab4:
-        st.subheader("🌐 Scrape Text & Images from Website")
+        st.subheader("🌐 Scrape Text, Images & PDFs from Website")
         url = st.text_input(
             "Enter website URL",
             placeholder="https://example.com"
@@ -432,15 +482,16 @@ else:
                 st.warning("Please enter a valid URL starting with http:// or https://")
             else:
                 with st.spinner("Scraping website..."):
-                    title, text, image_urls = scrape_website(url)
-                if text:
+                    title, text, image_urls, pdf_urls = scrape_website(url)
+                if text is not None:
                     st.session_state.scraped_text = text
                     st.session_state.scraped_images = image_urls
+                    st.session_state.scraped_pdfs = pdf_urls
                     st.session_state.scraped_title = title or "Website Content"
                     st.success(f"Successfully scraped: **{title}**")
-                    st.info(f"Found {len(image_urls)} images")
+                    st.info(f"Found {len(image_urls)} images • {len(pdf_urls)} PDF files")
 
-        # Show scraped text + downloads
+        # ---------- Text ----------
         if st.session_state.scraped_text:
             st.markdown("---")
             st.markdown("### 📄 Extracted Text")
@@ -462,29 +513,27 @@ else:
                     title=st.session_state.scraped_title
                 )
                 st.download_button(
-                    label="⬇️ Download PDF",
+                    label="⬇️ Download as PDF",
                     data=pdf_bytes,
                     file_name="website_content.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
 
-        # Show and download images (with selection + bulk)
+        # ---------- Images ----------
         if st.session_state.scraped_images:
             st.markdown("---")
             st.markdown(f"### 🖼️ Found Images ({len(st.session_state.scraped_images)})")
 
-            # Limit display for performance
             display_limit = min(30, len(st.session_state.scraped_images))
             images_to_show = st.session_state.scraped_images[:display_limit]
 
-            selected = []
+            selected_imgs = []
             for idx, img_url in enumerate(images_to_show):
                 col1, col2, col3 = st.columns([0.5, 3, 1.5])
                 with col1:
-                    checked = st.checkbox("", key=f"sel_img_{idx}", value=False)
-                    if checked:
-                        selected.append(img_url)
+                    if st.checkbox("", key=f"sel_img_{idx}", value=False):
+                        selected_imgs.append(img_url)
                 with col2:
                     st.caption(img_url)
                 with col3:
@@ -502,13 +551,13 @@ else:
                             key=f"img_dl_{idx}"
                         )
 
-            st.markdown("#### Bulk Download")
+            st.markdown("#### Bulk Download Images")
             col_sel, col_all = st.columns(2)
             with col_sel:
-                if selected:
-                    zip_data = create_zip_from_images(selected)
+                if selected_imgs:
+                    zip_data = create_zip_from_images(selected_imgs)
                     st.download_button(
-                        label=f"⬇️ Download Selected ({len(selected)}) as ZIP",
+                        label=f"⬇️ Download Selected ({len(selected_imgs)}) as ZIP",
                         data=zip_data,
                         file_name="selected_images.zip",
                         mime="application/zip",
@@ -517,14 +566,70 @@ else:
                 else:
                     st.button("⬇️ Download Selected as ZIP", disabled=True, use_container_width=True)
             with col_all:
-                if st.session_state.scraped_images:
-                    # Download all (capped at first 50 for safety)
-                    all_urls = st.session_state.scraped_images[:50]
-                    zip_all = create_zip_from_images(all_urls)
+                all_urls = st.session_state.scraped_images[:50]
+                zip_all = create_zip_from_images(all_urls)
+                st.download_button(
+                    label=f"⬇️ Download All ({len(all_urls)}) as ZIP",
+                    data=zip_all,
+                    file_name="all_images.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
+
+        # ---------- PDFs (NEW) ----------
+        if st.session_state.scraped_pdfs:
+            st.markdown("---")
+            st.markdown(f"### 📑 Found PDF Files ({len(st.session_state.scraped_pdfs)})")
+
+            selected_pdfs = []
+            for idx, pdf_url in enumerate(st.session_state.scraped_pdfs):
+                col1, col2, col3 = st.columns([0.5, 4, 1.5])
+                with col1:
+                    if st.checkbox("", key=f"sel_pdf_{idx}", value=False):
+                        selected_pdfs.append(pdf_url)
+                with col2:
+                    # Show a clean filename if possible
+                    nice_name = os.path.basename(urlparse(pdf_url).path) or f"document_{idx+1}.pdf"
+                    st.markdown(f"**{nice_name}**")
+                    st.caption(pdf_url)
+                with col3:
+                    content, filename = download_file(pdf_url)
+                    if content:
+                        if not filename.lower().endswith(".pdf"):
+                            filename = f"document_{idx+1}.pdf"
+                        st.download_button(
+                            label="⬇️ PDF",
+                            data=content,
+                            file_name=filename,
+                            mime="application/pdf",
+                            key=f"pdf_dl_{idx}"
+                        )
+                    else:
+                        st.caption("❌ Failed")
+
+            st.markdown("#### Bulk Download PDFs")
+            col_sel, col_all = st.columns(2)
+            with col_sel:
+                if selected_pdfs:
+                    zip_data = create_zip_from_pdfs(selected_pdfs)
                     st.download_button(
-                        label=f"⬇️ Download All ({len(all_urls)}) as ZIP",
-                        data=zip_all,
-                        file_name="all_images.zip",
+                        label=f"⬇️ Download Selected ({len(selected_pdfs)}) as ZIP",
+                        data=zip_data,
+                        file_name="selected_pdfs.zip",
                         mime="application/zip",
                         use_container_width=True
                     )
+                else:
+                    st.button("⬇️ Download Selected as ZIP", disabled=True, use_container_width=True)
+            with col_all:
+                zip_all = create_zip_from_pdfs(st.session_state.scraped_pdfs)
+                st.download_button(
+                    label=f"⬇️ Download All ({len(st.session_state.scraped_pdfs)}) as ZIP",
+                    data=zip_all,
+                    file_name="all_pdfs.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
+        elif st.session_state.scraped_text is not None:
+            # Only show this message after a scrape has been done
+            st.info("No PDF files were found on this page.")
