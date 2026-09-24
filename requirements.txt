@@ -1,14 +1,11 @@
 streamlit
 moviepy==1.0.3
 numpy
-pillow
+Pillow
 imageio
 imageio-ffmpeg
 gTTS
-pytesseract
 requests
-beautifulsoup4
-reportlab
 easyocr
 matplotlib
 opencv-python-headless
