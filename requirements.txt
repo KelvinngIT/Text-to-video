@@ -9,3 +9,6 @@ pytesseract
 requests
 beautifulsoup4
 reportlab
+easyocr
+matplotlib
+opencv-python-headless
