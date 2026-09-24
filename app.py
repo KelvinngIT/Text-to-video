@@ -5,7 +5,6 @@ import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 from moviepy.editor import ImageClip, AudioFileClip, CompositeVideoClip, TextClip
 from moviepy.video.fx.all import resize
-import cv2
 from gtts import gTTS
 import easyocr
 import requests
