@@ -9,3 +9,4 @@ requests
 easyocr
 matplotlib
 opencv-python-headless
+beautifulsoup4
