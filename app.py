@@ -17,8 +17,8 @@ from bs4 import BeautifulSoup
 import hashlib
 import random
 import string
-import re
 from urllib.parse import urljoin, urlparse
+from deep_translator import GoogleTranslator
 
 # ===== FIX for Pillow 10+ =====
 if not hasattr(Image, 'ANTIALIAS'):
@@ -31,6 +31,16 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="expanded"
 )
+
+# ====================== LANGUAGE OPTIONS ======================
+TRANSLATE_LANGS = {
+    "English": "en",
+    "Chinese (Simplified)": "zh-CN",
+    "German": "de",
+    "Japanese": "ja",
+    "French": "fr",
+    "Korean": "ko"
+}
 
 # ====================== AUTH HELPERS ======================
 USERS_FILE = "users.json"
@@ -101,10 +111,6 @@ def login_user(email: str, password: str) -> tuple[bool, str]:
 
 # ====================== WEBSITE SCRAPER ======================
 def scrape_website(url: str) -> dict:
-    """
-    Scrape text, images, audio and video links from a website.
-    Returns a dict with keys: text, images, audio, video, title, error
-    """
     result = {
         "title": "",
         "text": "",
@@ -127,22 +133,16 @@ def scrape_website(url: str) -> dict:
         response.raise_for_status()
         soup = BeautifulSoup(response.content, "html.parser")
         
-        # Title
         if soup.title and soup.title.string:
             result["title"] = soup.title.string.strip()
         
-        # Clean text (remove scripts/styles)
         for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
             tag.decompose()
         
         text = soup.get_text(separator="\n", strip=True)
-        # Remove excessive blank lines
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        result["text"] = "\n".join(lines[:800])  # limit length
+        result["text"] = "\n".join(lines[:800])
         
-        base_url = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
-        
-        # Images
         for img in soup.find_all("img"):
             src = img.get("src") or img.get("data-src") or img.get("data-lazy-src")
             if src:
@@ -150,7 +150,6 @@ def scrape_website(url: str) -> dict:
                 alt = img.get("alt", "")
                 result["images"].append({"url": full_url, "alt": alt})
         
-        # Audio
         for audio in soup.find_all("audio"):
             src = audio.get("src")
             if src:
@@ -160,7 +159,6 @@ def scrape_website(url: str) -> dict:
                 if s:
                     result["audio"].append(urljoin(url, s))
         
-        # Video tags
         for video in soup.find_all("video"):
             src = video.get("src")
             if src:
@@ -170,7 +168,6 @@ def scrape_website(url: str) -> dict:
                 if s:
                     result["video"].append(urljoin(url, s))
         
-        # Common video embeds / direct links (YouTube, Vimeo, mp4, webm, etc.)
         for a in soup.find_all("a", href=True):
             href = a["href"]
             full = urljoin(url, href)
@@ -182,14 +179,12 @@ def scrape_website(url: str) -> dict:
             elif "youtube.com" in lower or "youtu.be" in lower or "vimeo.com" in lower:
                 result["video"].append(full)
         
-        # iframe embeds
         for iframe in soup.find_all("iframe", src=True):
             src = iframe["src"]
             full = urljoin(url, src)
             if any(x in full.lower() for x in ["youtube", "vimeo", "dailymotion", "player"]):
                 result["video"].append(full)
         
-        # Deduplicate
         result["images"] = list({img["url"]: img for img in result["images"]}.values())
         result["audio"] = list(dict.fromkeys(result["audio"]))
         result["video"] = list(dict.fromkeys(result["video"]))
@@ -199,7 +194,19 @@ def scrape_website(url: str) -> dict:
     
     return result
 
-# ====================== HELPER FUNCTIONS ======================
+# ====================== TRANSLATE FUNCTION ======================
+def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> str:
+    try:
+        translator = GoogleTranslator(source=source_lang, target=target_lang)
+        if len(text) > 4500:
+            chunks = [text[i:i+4500] for i in range(0, len(text), 4500)]
+            results = [translator.translate(chunk) for chunk in chunks]
+            return " ".join(results)
+        return translator.translate(text)
+    except Exception as e:
+        return f"Translation error: {str(e)}"
+
+# ====================== IMAGE & VIDEO HELPERS ======================
 def enhance_image(image: Image.Image, sharpness=1.5, contrast=1.2, brightness=1.1, color=1.1) -> Image.Image:
     img = image.convert("RGB")
     img = ImageEnhance.Sharpness(img).enhance(sharpness)
@@ -456,6 +463,8 @@ if "pending_confirmation_email" not in st.session_state:
     st.session_state.pending_confirmation_email = None
 if "pending_confirmation_code" not in st.session_state:
     st.session_state.pending_confirmation_code = None
+if "translated_text" not in st.session_state:
+    st.session_state.translated_text = ""
 
 # ====================== AUTH UI ======================
 def show_auth_page():
@@ -519,7 +528,7 @@ def show_auth_page():
         if st.session_state.pending_confirmation_code:
             st.info(f"Last generated code (demo): `{st.session_state.pending_confirmation_code}`")
 
-# ====================== MAIN APP (only if logged in) ======================
+# ====================== MAIN APP ======================
 if not st.session_state.logged_in:
     show_auth_page()
     st.stop()
@@ -532,7 +541,7 @@ if st.sidebar.button("Logout"):
     st.rerun()
 
 st.title("🖼️ → 🎬 Image to Video Generator Pro")
-st.markdown("**Enhance • Watermark • Text-to-Image • OCR • TTS • Cinematic Video • Graphs • Web Scraper**")
+st.markdown("**Enhance • Watermark • Text-to-Image • OCR • TTS • Translate • Cinematic Video • Graphs • Web Scraper**")
 st.markdown("---")
 
 # ---------- USER COUNTER (Sidebar) ----------
@@ -542,7 +551,7 @@ with st.sidebar:
     st.metric("Users (Past Year)", user_count)
     st.caption("Counts unique sessions in the last 365 days")
 
-# ====================== WEBSITE SCRAPER SECTION ======================
+# ====================== WEBSITE SCRAPER ======================
 st.markdown("---")
 st.subheader("🌐 Scrape Website (Text • Images • Audio • Video)")
 
@@ -586,7 +595,7 @@ if st.session_state.scrape_result:
         with tab_img:
             if res["images"]:
                 st.write(f"Found **{len(res['images'])}** images")
-                for i, img_info in enumerate(res["images"][:30]):  # limit display
+                for i, img_info in enumerate(res["images"][:30]):
                     cols = st.columns([3, 1])
                     with cols[0]:
                         st.markdown(f"**{i+1}.** [{img_info['url']}]({img_info['url']})")
@@ -619,7 +628,6 @@ if st.session_state.scrape_result:
                 st.write(f"Found **{len(res['video'])}** video sources")
                 for i, vurl in enumerate(res["video"]):
                     st.markdown(f"**{i+1}.** [{vurl}]({vurl})")
-                    # Try to embed if it's a direct media file
                     if any(ext in vurl.lower() for ext in [".mp4", ".webm", ".mov"]):
                         try:
                             st.video(vurl)
@@ -627,6 +635,60 @@ if st.session_state.scrape_result:
                             pass
             else:
                 st.info("No video found.")
+
+# ====================== TRANSLATE TEXT ======================
+st.markdown("---")
+st.subheader("🌍 Translate Text")
+
+default_text = ""
+if st.session_state.get("extracted_text"):
+    default_text = st.session_state.extracted_text
+elif st.session_state.get("scrape_result") and st.session_state.scrape_result.get("text"):
+    default_text = st.session_state.scrape_result["text"][:3000]
+
+text_to_translate = st.text_area(
+    "Enter text to translate",
+    value=default_text,
+    height=160,
+    placeholder="Paste or type any text here..."
+)
+
+col_src, col_tgt = st.columns(2)
+with col_src:
+    source_lang_name = st.selectbox(
+        "From language",
+        ["Auto Detect"] + list(TRANSLATE_LANGS.keys()),
+        index=0
+    )
+with col_tgt:
+    target_lang_name = st.selectbox(
+        "To language",
+        list(TRANSLATE_LANGS.keys()),
+        index=0
+    )
+
+if st.button("🔄 Translate", type="primary", use_container_width=True):
+    if not text_to_translate.strip():
+        st.warning("Please enter some text to translate.")
+    else:
+        src_code = "auto" if source_lang_name == "Auto Detect" else TRANSLATE_LANGS[source_lang_name]
+        tgt_code = TRANSLATE_LANGS[target_lang_name]
+        
+        with st.spinner(f"Translating to {target_lang_name}..."):
+            result = translate_text(text_to_translate, target_lang=tgt_code, source_lang=src_code)
+            st.session_state.translated_text = result
+            st.success("✅ Translation completed!")
+
+if st.session_state.translated_text:
+    st.text_area("Translated Text", st.session_state.translated_text, height=180)
+    
+    st.download_button(
+        label="⬇️ Download Translation",
+        data=st.session_state.translated_text,
+        file_name=f"translation_{target_lang_name.lower().replace(' ', '_')}.txt",
+        mime="text/plain",
+        use_container_width=True
+    )
 
 # ====================== UPLOAD IMAGE ======================
 st.markdown("---")
@@ -774,7 +836,7 @@ if audio_source == "Upload Music":
 elif audio_source == "Text-to-Speech (Narration)":
     tts_text = st.text_area(
         "Text to convert to speech",
-        value=st.session_state.get("extracted_text", ""),
+        value=st.session_state.get("extracted_text", "") or st.session_state.get("translated_text", ""),
         placeholder="Once upon a time, in a beautiful place...",
         height=120
     )
