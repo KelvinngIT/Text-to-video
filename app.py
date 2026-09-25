@@ -13,6 +13,12 @@ import json
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from bs4 import BeautifulSoup
+import hashlib
+import random
+import string
+import re
+from urllib.parse import urljoin, urlparse
 
 # ===== FIX for Pillow 10+ =====
 if not hasattr(Image, 'ANTIALIAS'):
@@ -25,6 +31,173 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="expanded"
 )
+
+# ====================== AUTH HELPERS ======================
+USERS_FILE = "users.json"
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def load_users() -> dict:
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_users(users: dict):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+
+def generate_confirmation_code(length: int = 6) -> str:
+    return "".join(random.choices(string.digits, k=length))
+
+def register_user(email: str, password: str) -> tuple[bool, str]:
+    users = load_users()
+    email = email.lower().strip()
+    if not email or "@" not in email:
+        return False, "Please enter a valid email address."
+    if email in users:
+        return False, "This email is already registered."
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters."
+    
+    code = generate_confirmation_code()
+    users[email] = {
+        "password": hash_password(password),
+        "confirmed": False,
+        "confirmation_code": code,
+        "created_at": datetime.now().isoformat()
+    }
+    save_users(users)
+    return True, code
+
+def confirm_email(email: str, code: str) -> tuple[bool, str]:
+    users = load_users()
+    email = email.lower().strip()
+    if email not in users:
+        return False, "Email not found."
+    if users[email]["confirmed"]:
+        return True, "Email already confirmed. You can log in."
+    if users[email]["confirmation_code"] == code.strip():
+        users[email]["confirmed"] = True
+        users[email].pop("confirmation_code", None)
+        save_users(users)
+        return True, "Email confirmed successfully! You can now log in."
+    return False, "Invalid confirmation code."
+
+def login_user(email: str, password: str) -> tuple[bool, str]:
+    users = load_users()
+    email = email.lower().strip()
+    if email not in users:
+        return False, "Email not registered."
+    if not users[email]["confirmed"]:
+        return False, "Please confirm your email first."
+    if users[email]["password"] == hash_password(password):
+        return True, "Login successful!"
+    return False, "Incorrect password."
+
+# ====================== WEBSITE SCRAPER ======================
+def scrape_website(url: str) -> dict:
+    """
+    Scrape text, images, audio and video links from a website.
+    Returns a dict with keys: text, images, audio, video, title, error
+    """
+    result = {
+        "title": "",
+        "text": "",
+        "images": [],
+        "audio": [],
+        "video": [],
+        "error": None
+    }
+    
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=20)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, "html.parser")
+        
+        # Title
+        if soup.title and soup.title.string:
+            result["title"] = soup.title.string.strip()
+        
+        # Clean text (remove scripts/styles)
+        for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
+            tag.decompose()
+        
+        text = soup.get_text(separator="\n", strip=True)
+        # Remove excessive blank lines
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        result["text"] = "\n".join(lines[:800])  # limit length
+        
+        base_url = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+        
+        # Images
+        for img in soup.find_all("img"):
+            src = img.get("src") or img.get("data-src") or img.get("data-lazy-src")
+            if src:
+                full_url = urljoin(url, src)
+                alt = img.get("alt", "")
+                result["images"].append({"url": full_url, "alt": alt})
+        
+        # Audio
+        for audio in soup.find_all("audio"):
+            src = audio.get("src")
+            if src:
+                result["audio"].append(urljoin(url, src))
+            for source in audio.find_all("source"):
+                s = source.get("src")
+                if s:
+                    result["audio"].append(urljoin(url, s))
+        
+        # Video tags
+        for video in soup.find_all("video"):
+            src = video.get("src")
+            if src:
+                result["video"].append(urljoin(url, src))
+            for source in video.find_all("source"):
+                s = source.get("src")
+                if s:
+                    result["video"].append(urljoin(url, s))
+        
+        # Common video embeds / direct links (YouTube, Vimeo, mp4, webm, etc.)
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            full = urljoin(url, href)
+            lower = full.lower()
+            if any(ext in lower for ext in [".mp4", ".webm", ".mov", ".m4v", ".mkv"]):
+                result["video"].append(full)
+            elif any(ext in lower for ext in [".mp3", ".wav", ".ogg", ".m4a", ".aac"]):
+                result["audio"].append(full)
+            elif "youtube.com" in lower or "youtu.be" in lower or "vimeo.com" in lower:
+                result["video"].append(full)
+        
+        # iframe embeds
+        for iframe in soup.find_all("iframe", src=True):
+            src = iframe["src"]
+            full = urljoin(url, src)
+            if any(x in full.lower() for x in ["youtube", "vimeo", "dailymotion", "player"]):
+                result["video"].append(full)
+        
+        # Deduplicate
+        result["images"] = list({img["url"]: img for img in result["images"]}.values())
+        result["audio"] = list(dict.fromkeys(result["audio"]))
+        result["video"] = list(dict.fromkeys(result["video"]))
+        
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
 
 # ====================== HELPER FUNCTIONS ======================
 def enhance_image(image: Image.Image, sharpness=1.5, contrast=1.2, brightness=1.1, color=1.1) -> Image.Image:
@@ -122,7 +295,7 @@ def create_video_from_image(
     img_array = np.array(image.convert("RGB"))
     clip = ImageClip(img_array).set_duration(duration)
     w, h = clip.size
-
+    
     def make_frame(t):
         progress = min(t / duration, 1.0)
         if zoom_in:
@@ -138,9 +311,9 @@ def create_video_from_image(
         resized = resize(clip, newsize=(new_w, new_h))
         frame = resized.get_frame(t)
         return frame[y_offset:y_offset + h, x_offset:x_offset + w]
-
+    
     animated = clip.fl(lambda gf, t: make_frame(t))
-
+    
     if title and title.strip():
         try:
             txt_clip = TextClip(
@@ -160,7 +333,7 @@ def create_video_from_image(
             animated = CompositeVideoClip([animated, txt_clip])
         except Exception as e:
             st.warning(f"Could not add title: {e}")
-
+    
     if audio_path and os.path.exists(audio_path):
         try:
             audio = AudioFileClip(audio_path)
@@ -172,7 +345,7 @@ def create_video_from_image(
             animated = animated.set_audio(audio)
         except Exception as e:
             st.warning(f"Could not add audio: {e}")
-
+    
     fd, output_path = tempfile.mkstemp(suffix=".mp4")
     os.close(fd)
     animated.write_videofile(
@@ -187,11 +360,9 @@ def create_video_from_image(
     return output_path
 
 def get_users_past_year() -> int:
-    """Tracks and returns the number of app visits in the past 365 days."""
     COUNTER_FILE = "user_visits.json"
     now = datetime.now()
     one_year_ago = now - timedelta(days=365)
-
     visits = []
     if os.path.exists(COUNTER_FILE):
         try:
@@ -199,25 +370,17 @@ def get_users_past_year() -> int:
                 visits = json.load(f)
         except Exception:
             visits = []
-
     visits = [v for v in visits if datetime.fromisoformat(v) > one_year_ago]
-
     if "counted_this_session" not in st.session_state:
         visits.append(now.isoformat())
         st.session_state.counted_this_session = True
         with open(COUNTER_FILE, "w") as f:
             json.dump(visits, f)
-
     return len(visits)
 
-# ====================== NEW GRAPH FUNCTIONS ======================
+# ====================== GRAPH FUNCTIONS ======================
 def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500):
-    """
-    Create a 2D matplotlib graph.
-    func_type: "sine", "cosine", "quadratic", "exponential"
-    """
     x = np.linspace(x_range[0], x_range[1], points)
-
     if func_type == "sine":
         y = np.sin(x)
         title = "2D Graph: y = sin(x)"
@@ -233,7 +396,6 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500):
     else:
         y = np.sin(x)
         title = "2D Graph: y = sin(x)"
-
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(x, y, color="#1f77b4", linewidth=2.5)
     ax.set_title(title, fontsize=14, fontweight="bold")
@@ -246,14 +408,9 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500):
     return fig
 
 def create_3d_graph(func_type="surface", resolution=50):
-    """
-    Create a 3D matplotlib graph.
-    func_type: "surface", "wave", "saddle", "ripple"
-    """
     x = np.linspace(-5, 5, resolution)
     y = np.linspace(-5, 5, resolution)
     X, Y = np.meshgrid(x, y)
-
     if func_type == "surface":
         Z = np.sin(np.sqrt(X**2 + Y**2))
         title = "3D Graph: z = sin(√(x² + y²))"
@@ -269,7 +426,6 @@ def create_3d_graph(func_type="surface", resolution=50):
     else:
         Z = np.sin(np.sqrt(X**2 + Y**2))
         title = "3D Graph: z = sin(√(x² + y²))"
-
     fig = plt.figure(figsize=(9, 7))
     ax = fig.add_subplot(111, projection="3d")
     surf = ax.plot_surface(X, Y, Z, cmap="viridis", edgecolor="none", alpha=0.9)
@@ -282,6 +438,10 @@ def create_3d_graph(func_type="surface", resolution=50):
     return fig
 
 # ====================== SESSION STATE ======================
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
 if "video_path" not in st.session_state:
     st.session_state.video_path = None
 if "processed_image" not in st.session_state:
@@ -290,10 +450,89 @@ if "tts_audio_path" not in st.session_state:
     st.session_state.tts_audio_path = None
 if "extracted_text" not in st.session_state:
     st.session_state.extracted_text = ""
+if "scrape_result" not in st.session_state:
+    st.session_state.scrape_result = None
+if "pending_confirmation_email" not in st.session_state:
+    st.session_state.pending_confirmation_email = None
+if "pending_confirmation_code" not in st.session_state:
+    st.session_state.pending_confirmation_code = None
 
-# ====================== UI ======================
+# ====================== AUTH UI ======================
+def show_auth_page():
+    st.title("🔐 Login / Register")
+    st.markdown("Please log in or create an account to use the app.")
+    
+    tab_login, tab_register, tab_confirm = st.tabs(["Login", "Register", "Confirm Email"])
+    
+    with tab_login:
+        with st.form("login_form"):
+            email = st.text_input("Email", key="login_email")
+            password = st.text_input("Password", type="password", key="login_pw")
+            submit = st.form_submit_button("Login", use_container_width=True)
+            if submit:
+                ok, msg = login_user(email, password)
+                if ok:
+                    st.session_state.logged_in = True
+                    st.session_state.user_email = email.lower().strip()
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+    
+    with tab_register:
+        with st.form("register_form"):
+            email = st.text_input("Email", key="reg_email")
+            password = st.text_input("Password (min 6 chars)", type="password", key="reg_pw")
+            password2 = st.text_input("Confirm Password", type="password", key="reg_pw2")
+            submit = st.form_submit_button("Register", use_container_width=True)
+            if submit:
+                if password != password2:
+                    st.error("Passwords do not match.")
+                else:
+                    ok, result = register_user(email, password)
+                    if ok:
+                        st.session_state.pending_confirmation_email = email.lower().strip()
+                        st.session_state.pending_confirmation_code = result
+                        st.success("Registration successful! Please confirm your email.")
+                        st.info(f"**Demo Confirmation Code:** `{result}`  \n(In production this would be sent by email)")
+                        st.rerun()
+                    else:
+                        st.error(result)
+    
+    with tab_confirm:
+        st.markdown("Enter the confirmation code you received after registration.")
+        email = st.text_input(
+            "Email",
+            value=st.session_state.pending_confirmation_email or "",
+            key="confirm_email"
+        )
+        code = st.text_input("Confirmation Code", key="confirm_code")
+        if st.button("Confirm Email", use_container_width=True):
+            ok, msg = confirm_email(email, code)
+            if ok:
+                st.success(msg)
+                st.session_state.pending_confirmation_email = None
+                st.session_state.pending_confirmation_code = None
+            else:
+                st.error(msg)
+        
+        if st.session_state.pending_confirmation_code:
+            st.info(f"Last generated code (demo): `{st.session_state.pending_confirmation_code}`")
+
+# ====================== MAIN APP (only if logged in) ======================
+if not st.session_state.logged_in:
+    show_auth_page()
+    st.stop()
+
+# ----- Logged-in UI -----
+st.sidebar.success(f"Logged in as: **{st.session_state.user_email}**")
+if st.sidebar.button("Logout"):
+    st.session_state.logged_in = False
+    st.session_state.user_email = None
+    st.rerun()
+
 st.title("🖼️ → 🎬 Image to Video Generator Pro")
-st.markdown("**Enhance • Watermark • Text-to-Image • OCR • TTS • Cinematic Video • Graphs**")
+st.markdown("**Enhance • Watermark • Text-to-Image • OCR • TTS • Cinematic Video • Graphs • Web Scraper**")
 st.markdown("---")
 
 # ---------- USER COUNTER (Sidebar) ----------
@@ -303,7 +542,94 @@ with st.sidebar:
     st.metric("Users (Past Year)", user_count)
     st.caption("Counts unique sessions in the last 365 days")
 
-# ---------- UPLOAD IMAGE ----------
+# ====================== WEBSITE SCRAPER SECTION ======================
+st.markdown("---")
+st.subheader("🌐 Scrape Website (Text • Images • Audio • Video)")
+
+scrape_url = st.text_input(
+    "Enter website URL",
+    placeholder="https://example.com or example.com",
+    key="scrape_url"
+)
+
+if st.button("🔍 Scrape Website", use_container_width=True):
+    if not scrape_url.strip():
+        st.warning("Please enter a URL.")
+    else:
+        with st.spinner("Scraping website... Please wait"):
+            result = scrape_website(scrape_url.strip())
+            st.session_state.scrape_result = result
+
+if st.session_state.scrape_result:
+    res = st.session_state.scrape_result
+    if res["error"]:
+        st.error(f"Scrape failed: {res['error']}")
+    else:
+        st.success(f"✅ Scraped: **{res['title'] or 'Untitled'}**")
+        
+        tab_text, tab_img, tab_audio, tab_video = st.tabs(
+            ["📝 Text", "🖼️ Images", "🎵 Audio", "🎬 Video"]
+        )
+        
+        with tab_text:
+            if res["text"]:
+                st.text_area("Extracted Text", res["text"], height=300)
+                st.download_button(
+                    "⬇️ Download Text",
+                    data=res["text"],
+                    file_name="scraped_text.txt",
+                    mime="text/plain"
+                )
+            else:
+                st.info("No text found.")
+        
+        with tab_img:
+            if res["images"]:
+                st.write(f"Found **{len(res['images'])}** images")
+                for i, img_info in enumerate(res["images"][:30]):  # limit display
+                    cols = st.columns([3, 1])
+                    with cols[0]:
+                        st.markdown(f"**{i+1}.** [{img_info['url']}]({img_info['url']})")
+                        if img_info.get("alt"):
+                            st.caption(img_info["alt"])
+                    with cols[1]:
+                        try:
+                            st.image(img_info["url"], width=120)
+                        except:
+                            st.caption("(preview failed)")
+                if len(res["images"]) > 30:
+                    st.info(f"... and {len(res['images']) - 30} more images")
+            else:
+                st.info("No images found.")
+        
+        with tab_audio:
+            if res["audio"]:
+                st.write(f"Found **{len(res['audio'])}** audio sources")
+                for i, aurl in enumerate(res["audio"]):
+                    st.markdown(f"**{i+1}.** [{aurl}]({aurl})")
+                    try:
+                        st.audio(aurl)
+                    except:
+                        pass
+            else:
+                st.info("No audio found.")
+        
+        with tab_video:
+            if res["video"]:
+                st.write(f"Found **{len(res['video'])}** video sources")
+                for i, vurl in enumerate(res["video"]):
+                    st.markdown(f"**{i+1}.** [{vurl}]({vurl})")
+                    # Try to embed if it's a direct media file
+                    if any(ext in vurl.lower() for ext in [".mp4", ".webm", ".mov"]):
+                        try:
+                            st.video(vurl)
+                        except:
+                            pass
+            else:
+                st.info("No video found.")
+
+# ====================== UPLOAD IMAGE ======================
+st.markdown("---")
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png", "webp"])
 if uploaded_file:
     original_image = Image.open(uploaded_file).convert("RGB")
@@ -343,7 +669,7 @@ if original_image or st.session_state.processed_image:
     st.markdown("---")
     st.subheader("🛠️ Image Tools")
     current_img = st.session_state.processed_image or original_image
-
+    
     with st.expander("✨ Enhance Image Quality", expanded=False):
         c1, c2, c3, c4 = st.columns(4)
         with c1: sharpness = st.slider("Sharpness", 0.5, 3.0, 1.5, 0.1)
@@ -355,7 +681,7 @@ if original_image or st.session_state.processed_image:
             st.session_state.processed_image = enhanced
             st.success("Enhanced!")
             st.image(enhanced, use_container_width=True)
-
+    
     with st.expander("💧 Add Watermark"):
         wm_type = st.radio("Type", ["Text", "Logo"], horizontal=True)
         position = st.selectbox("Position", ["bottom-right", "bottom-left", "top-right", "top-left", "center"])
@@ -374,7 +700,7 @@ if original_image or st.session_state.processed_image:
                 result = add_watermark(current_img, watermark_img=wm_img, position=position, opacity=opacity, scale=scale)
                 st.session_state.processed_image = result
                 st.image(result, use_container_width=True)
-
+    
     if st.session_state.processed_image:
         st.markdown("**Current Working Image:**")
         st.image(st.session_state.processed_image, use_container_width=True)
@@ -436,8 +762,8 @@ audio_source = st.radio(
     ["Upload Music", "Text-to-Speech (Narration)", "No Audio"],
     horizontal=True
 )
-
 audio_path = None
+
 if audio_source == "Upload Music":
     audio_file = st.file_uploader("Upload MP3 / WAV music", type=["mp3", "wav", "m4a"])
     if audio_file:
@@ -473,7 +799,7 @@ elif audio_source == "Text-to-Speech (Narration)":
         tts_lang_code = tts_lang[1]
     with col_y:
         tts_slow = st.checkbox("Slow speech", value=False)
-
+    
     if st.button("🔊 Generate Speech"):
         if tts_text.strip():
             with st.spinner("Generating speech..."):
@@ -488,7 +814,7 @@ elif audio_source == "Text-to-Speech (Narration)":
                 st.audio(path)
         else:
             st.warning("Please enter some text first.")
-
+    
     if st.session_state.tts_audio_path and os.path.exists(st.session_state.tts_audio_path):
         audio_path = st.session_state.tts_audio_path
         st.caption("Using generated speech as video audio")
@@ -510,7 +836,7 @@ if st.button("🎬 Generate Video", type="primary", use_container_width=True):
             pan_y = -0.5
         elif motion == "Pan Down":
             pan_y = 0.5
-
+        
         with st.spinner("Generating video... Please wait"):
             try:
                 if st.session_state.video_path and os.path.exists(st.session_state.video_path):
@@ -548,10 +874,9 @@ if st.session_state.video_path and os.path.exists(st.session_state.video_path):
         use_container_width=True
     )
 
-# ====================== NEW GRAPHS SECTION ======================
+# ====================== GRAPHS SECTION ======================
 st.markdown("---")
 st.subheader("📈 2D & 3D Graphs")
-
 tab1, tab2 = st.tabs(["📊 2D Graph", "🧊 3D Graph"])
 
 with tab1:
@@ -565,9 +890,7 @@ with tab1:
         )
     with col_2d2:
         points_2d = st.slider("Number of Points", 100, 1000, 500, 50, key="points_2d")
-
     x_min, x_max = st.slider("X Range", -20.0, 20.0, (-10.0, 10.0), key="x_range")
-
     if st.button("Generate 2D Graph", use_container_width=True, key="btn_2d"):
         with st.spinner("Creating 2D graph..."):
             fig_2d = create_2d_graph(func_type=func_2d, x_range=(x_min, x_max), points=points_2d)
@@ -585,7 +908,6 @@ with tab2:
         )
     with col_3d2:
         resolution_3d = st.slider("Resolution", 20, 100, 50, 5, key="res_3d")
-
     if st.button("Generate 3D Graph", use_container_width=True, key="btn_3d"):
         with st.spinner("Creating 3D graph..."):
             fig_3d = create_3d_graph(func_type=func_3d, resolution=resolution_3d)
