@@ -1156,10 +1156,35 @@ with tab1:
     col_2d1, col_2d2 = st.columns(2)
     with col_2d1:
         func_2d = st.selectbox(
-            "Function Type",
-            ["sine", "cosine", "quadratic", "exponential"],
-            key="func_2d"
-        )
+    "Function Type",
+    [
+        "sine",
+        "cosine",
+        "quadratic",
+        "exponential",
+        "absolute",
+        "sqrt",
+        "tangent",
+        "log",
+        "reciprocal",
+        "cubic",
+        "gaussian"
+    ],
+    format_func=lambda x: {
+        "sine": "Sine → y = sin(x)",
+        "cosine": "Cosine → y = cos(x)",
+        "quadratic": "Parabola → y = x²",
+        "exponential": "Exponential → y = e^(x/5)",
+        "absolute": "Absolute Value → y = |x|",
+        "sqrt": "Square Root → y = √x",
+        "tangent": "Tangent → y = tan(x)",
+        "log": "Logarithm → y = log(x)",
+        "reciprocal": "Reciprocal → y = 1/x",
+        "cubic": "Cubic → y = x³",
+        "gaussian": "Gaussian → y = e^(-x²)"
+    }[x],
+    key="func_2d"
+)
     with col_2d2:
         points_2d = st.slider("Number of Points", 100, 1000, 500, 50, key="points_2d")
     x_min, x_max = st.slider("X Range", -20.0, 20.0, (-10.0, 10.0), key="x_range")
