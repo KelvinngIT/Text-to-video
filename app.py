@@ -195,17 +195,17 @@ def scrape_website(url: str) -> dict:
     
     return result
 
-# ====================== TRANSLATE FUNCTION (FULLY FIXED) ======================
+# ====================== TRANSLATE FUNCTION (FINAL FIXED VERSION) ======================
 def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> str:
     """
     Robust translation with automatic fallback.
-    1. Tries Google Translator
-    2. If rate-limited → falls back to MyMemoryTranslator with correct language codes
+    - Google: chunks of 4000 characters
+    - MyMemory: chunks of 450 characters (strict 500 limit)
     """
     if not text or not text.strip():
         return ""
 
-    # Correct language codes for MyMemoryTranslator
+    # Correct language codes for MyMemory
     MYMEMORY_CODES = {
         "en": "en-GB",
         "zh-CN": "zh-CN",
@@ -224,59 +224,64 @@ def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> st
     mm_target = MYMEMORY_CODES.get(target_lang, target_lang)
     mm_source = MYMEMORY_CODES.get(source_lang, source_lang) if source_lang != "auto" else "auto"
 
-    def _try_google(text_chunk: str) -> str:
-        translator = GoogleTranslator(source=source_lang, target=target_lang)
-        return translator.translate(text_chunk)
+    def _try_google(chunk: str) -> str:
+        return GoogleTranslator(source=source_lang, target=target_lang).translate(chunk)
 
-    def _try_mymemory(text_chunk: str) -> str:
+    def _try_mymemory(chunk: str) -> str:
         try:
             if mm_source == "auto":
-                return MyMemoryTranslator(source="en-GB", target=mm_target).translate(text_chunk)
+                return MyMemoryTranslator(source="en-GB", target=mm_target).translate(chunk)
             else:
-                return MyMemoryTranslator(source=mm_source, target=mm_target).translate(text_chunk)
+                return MyMemoryTranslator(source=mm_source, target=mm_target).translate(chunk)
         except Exception:
-            # Last resort
-            return MyMemoryTranslator(source="en-GB", target=mm_target).translate(text_chunk)
+            return MyMemoryTranslator(source="en-GB", target=mm_target).translate(chunk)
 
-    chunk_size = 4500
-    chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-    results = []
+    # ---------- Try Google first (larger chunks) ----------
+    google_chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
+    google_results = []
+    google_success = True
 
-    for i, chunk in enumerate(chunks):
-        translated = None
-        last_error = None
-
-        # --- Try Google first (up to 2 attempts) ---
+    for i, chunk in enumerate(google_chunks):
+        success = False
         for attempt in range(2):
             try:
-                translated = _try_google(chunk)
+                google_results.append(_try_google(chunk))
+                success = True
                 break
             except Exception as e:
-                last_error = str(e)
-                err_lower = last_error.lower()
-                if "too many requests" in err_lower or "rate" in err_lower or "server error" in err_lower:
-                    time.sleep(2.0 * (attempt + 1))
+                err = str(e).lower()
+                if "too many requests" in err or "rate" in err or "server error" in err:
+                    time.sleep(2.2 * (attempt + 1))
                 else:
+                    google_success = False
                     break
+        if not success:
+            google_success = False
+            break
+        if i < len(google_chunks) - 1:
+            time.sleep(1.0)
 
-        # --- Fallback to MyMemory ---
-        if translated is None:
-            try:
-                translated = _try_mymemory(chunk)
-            except Exception as e:
-                return (
-                    f"Translation error: Both Google and MyMemory failed.\n\n"
-                    f"Google: {last_error}\n"
-                    f"MyMemory: {str(e)}\n\n"
-                    "Please wait 1–2 minutes and try again, or use shorter text."
-                )
+    if google_success and google_results:
+        return " ".join(google_results)
 
-        results.append(translated)
+    # ---------- Fallback to MyMemory (small chunks ≤ 450 chars) ----------
+    mm_chunks = [text[i:i+450] for i in range(0, len(text), 450)]
+    mm_results = []
 
-        if i < len(chunks) - 1:
-            time.sleep(0.9)
+    for i, chunk in enumerate(mm_chunks):
+        try:
+            mm_results.append(_try_mymemory(chunk))
+        except Exception as e:
+            return (
+                f"Translation error: Both Google and MyMemory failed.\n\n"
+                f"Google was rate-limited.\n"
+                f"MyMemory error: {str(e)}\n\n"
+                "Please wait 1–2 minutes and try again, or use shorter text."
+            )
+        if i < len(mm_chunks) - 1:
+            time.sleep(0.7)
 
-    return " ".join(results)
+    return " ".join(mm_results)
 
 # ====================== IMAGE & VIDEO HELPERS ======================
 def enhance_image(image: Image.Image, sharpness=1.5, contrast=1.2, brightness=1.1, color=1.1) -> Image.Image:
