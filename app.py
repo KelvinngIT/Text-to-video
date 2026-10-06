@@ -195,24 +195,34 @@ def scrape_website(url: str) -> dict:
     
     return result
 
-# ====================== TRANSLATE FUNCTION (IMPROVED WITH FALLBACK) ======================
+# ====================== TRANSLATE FUNCTION (FULLY FIXED) ======================
 def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> str:
     """
     Robust translation with automatic fallback.
     1. Tries Google Translator
-    2. If rate-limited → falls back to MyMemoryTranslator (more generous)
+    2. If rate-limited → falls back to MyMemoryTranslator with correct language codes
     """
     if not text or not text.strip():
         return ""
 
-    # Normalize language codes for MyMemory
-    lang_map = {
+    # Correct language codes for MyMemoryTranslator
+    MYMEMORY_CODES = {
+        "en": "en-GB",
         "zh-CN": "zh-CN",
         "zh": "zh-CN",
+        "de": "de-DE",
+        "ja": "ja-JP",
+        "fr": "fr-FR",
+        "ko": "ko-KR",
+        "id": "id-ID",
+        "es": "es-ES",
+        "ar": "ar-SA",
+        "hi": "hi-IN",
         "auto": "auto"
     }
-    mm_target = lang_map.get(target_lang, target_lang)
-    mm_source = lang_map.get(source_lang, source_lang) if source_lang != "auto" else "auto"
+
+    mm_target = MYMEMORY_CODES.get(target_lang, target_lang)
+    mm_source = MYMEMORY_CODES.get(source_lang, source_lang) if source_lang != "auto" else "auto"
 
     def _try_google(text_chunk: str) -> str:
         translator = GoogleTranslator(source=source_lang, target=target_lang)
@@ -221,12 +231,12 @@ def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> st
     def _try_mymemory(text_chunk: str) -> str:
         try:
             if mm_source == "auto":
-                return MyMemoryTranslator(source="auto", target=mm_target).translate(text_chunk)
+                return MyMemoryTranslator(source="en-GB", target=mm_target).translate(text_chunk)
             else:
                 return MyMemoryTranslator(source=mm_source, target=mm_target).translate(text_chunk)
         except Exception:
-            # Final fallback
-            return MyMemoryTranslator(source="en", target=mm_target).translate(text_chunk)
+            # Last resort
+            return MyMemoryTranslator(source="en-GB", target=mm_target).translate(text_chunk)
 
     chunk_size = 4500
     chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
@@ -245,17 +255,17 @@ def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> st
                 last_error = str(e)
                 err_lower = last_error.lower()
                 if "too many requests" in err_lower or "rate" in err_lower or "server error" in err_lower:
-                    time.sleep(1.8 * (attempt + 1))
+                    time.sleep(2.0 * (attempt + 1))
                 else:
-                    break  # non-rate-limit error → skip to fallback
+                    break
 
-        # --- Fallback to MyMemory if Google failed ---
+        # --- Fallback to MyMemory ---
         if translated is None:
             try:
                 translated = _try_mymemory(chunk)
             except Exception as e:
                 return (
-                    f"Translation error: Both Google and MyMemory failed.\n"
+                    f"Translation error: Both Google and MyMemory failed.\n\n"
                     f"Google: {last_error}\n"
                     f"MyMemory: {str(e)}\n\n"
                     "Please wait 1–2 minutes and try again, or use shorter text."
@@ -263,9 +273,8 @@ def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> st
 
         results.append(translated)
 
-        # Small delay between chunks
         if i < len(chunks) - 1:
-            time.sleep(0.8)
+            time.sleep(0.9)
 
     return " ".join(results)
 
@@ -450,18 +459,11 @@ def get_users_past_year() -> int:
 
 # ====================== GRAPH FUNCTIONS ======================
 def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_formula=None):
-    """
-    Create a 2D graph.
-    - If custom_formula is provided, it is evaluated (safe limited eval).
-    - Otherwise uses the predefined func_type.
-    """
     x = np.linspace(x_range[0], x_range[1], points)
 
     if custom_formula and custom_formula.strip():
-        # Safe evaluation environment
         safe_dict = {
-            "x": x,
-            "np": np,
+            "x": x, "np": np,
             "sin": np.sin, "cos": np.cos, "tan": np.tan,
             "arcsin": np.arcsin, "arccos": np.arccos, "arctan": np.arctan,
             "sinh": np.sinh, "cosh": np.cosh, "tanh": np.tanh,
@@ -472,7 +474,6 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_form
             "sign": np.sign, "power": np.power, "maximum": np.maximum, "minimum": np.minimum,
         }
         try:
-            # Restrict builtins for safety
             y = eval(custom_formula, {"__builtins__": {}}, safe_dict)
             y = np.asarray(y, dtype=float)
             if y.shape != x.shape:
@@ -509,33 +510,22 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_form
     return fig
 
 def create_quadratic_graph(a=1.0, b=0.0, c=0.0, x_range=(-10, 10), points=500):
-    """Plot y = a x² + b x + c"""
     x = np.linspace(x_range[0], x_range[1], points)
     y = a * x**2 + b * x + c
 
-    # Nice title with signs
     terms = []
     if a != 0:
-        if a == 1:
-            terms.append("x²")
-        elif a == -1:
-            terms.append("-x²")
-        else:
-            terms.append(f"{a:g}x²")
+        if a == 1: terms.append("x²")
+        elif a == -1: terms.append("-x²")
+        else: terms.append(f"{a:g}x²")
     if b != 0:
-        if b > 0 and terms:
-            sign = "+"
-        else:
-            sign = ""
+        sign = "+" if b > 0 and terms else ""
         if abs(b) == 1:
             terms.append(f"{sign}x" if b > 0 else "-x")
         else:
             terms.append(f"{sign}{b:g}x")
     if c != 0 or not terms:
-        if c > 0 and terms:
-            sign = "+"
-        else:
-            sign = ""
+        sign = "+" if c > 0 and terms else ""
         terms.append(f"{sign}{c:g}")
 
     title = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
@@ -552,41 +542,28 @@ def create_quadratic_graph(a=1.0, b=0.0, c=0.0, x_range=(-10, 10), points=500):
     return fig
 
 def create_cubic_graph(a=1.0, b=0.0, c=0.0, d=0.0, x_range=(-10, 10), points=500):
-    """Plot y = a x³ + b x² + c x + d"""
     x = np.linspace(x_range[0], x_range[1], points)
     y = a * x**3 + b * x**2 + c * x + d
 
     terms = []
     if a != 0:
-        if a == 1:
-            terms.append("x³")
-        elif a == -1:
-            terms.append("-x³")
-        else:
-            terms.append(f"{a:g}x³")
+        if a == 1: terms.append("x³")
+        elif a == -1: terms.append("-x³")
+        else: terms.append(f"{a:g}x³")
     if b != 0:
-        if b > 0 and terms:
-            sign = "+"
-        else:
-            sign = ""
+        sign = "+" if b > 0 and terms else ""
         if abs(b) == 1:
             terms.append(f"{sign}x²" if b > 0 else "-x²")
         else:
             terms.append(f"{sign}{b:g}x²")
     if c != 0:
-        if c > 0 and terms:
-            sign = "+"
-        else:
-            sign = ""
+        sign = "+" if c > 0 and terms else ""
         if abs(c) == 1:
             terms.append(f"{sign}x" if c > 0 else "-x")
         else:
             terms.append(f"{sign}{c:g}x")
     if d != 0 or not terms:
-        if d > 0 and terms:
-            sign = "+"
-        else:
-            sign = ""
+        sign = "+" if d > 0 and terms else ""
         terms.append(f"{sign}{d:g}")
 
     title = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
