@@ -1,6 +1,7 @@
 import streamlit as st
 import tempfile
 import os
+import time
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 from moviepy.editor import ImageClip, AudioFileClip, CompositeVideoClip, TextClip
@@ -194,15 +195,59 @@ def scrape_website(url: str) -> dict:
     
     return result
 
-# ====================== TRANSLATE FUNCTION ======================
+# ====================== TRANSLATE FUNCTION (FIXED) ======================
 def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> str:
+    """
+    Safe translation with rate-limit protection.
+    - Adds delay between chunks
+    - Retries on temporary rate-limit errors
+    - Returns a clear error message instead of crashing
+    """
+    if not text or not text.strip():
+        return ""
+
+    max_retries = 3
+    delay_between_requests = 1.3   # safe under Google's 5 req/s limit
+
     try:
         translator = GoogleTranslator(source=source_lang, target=target_lang)
-        if len(text) > 4500:
-            chunks = [text[i:i+4500] for i in range(0, len(text), 4500)]
-            results = [translator.translate(chunk) for chunk in chunks]
-            return " ".join(results)
-        return translator.translate(text)
+
+        # Keep chunks under ~4000 characters
+        chunk_size = 4000
+        chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+        results = []
+
+        for i, chunk in enumerate(chunks):
+            success = False
+            for attempt in range(max_retries):
+                try:
+                    translated = translator.translate(chunk)
+                    results.append(translated)
+                    success = True
+                    break
+                except Exception as e:
+                    err = str(e).lower()
+                    if "too many requests" in err or "server error" in err or "rate" in err:
+                        wait_time = delay_between_requests * (attempt + 1) * 1.5
+                        time.sleep(wait_time)
+                        if attempt == max_retries - 1:
+                            return (
+                                "Translation error: Rate limit reached by Google. "
+                                "Please wait 30-60 seconds and try again."
+                            )
+                    else:
+                        return f"Translation error: {str(e)}"
+
+            if not success:
+                return "Translation error: Failed after several retries."
+
+            # Always wait a bit before the next chunk
+            if i < len(chunks) - 1:
+                time.sleep(delay_between_requests)
+
+        return " ".join(results)
+
     except Exception as e:
         return f"Translation error: {str(e)}"
 
@@ -800,11 +845,20 @@ if st.button("🔄 Translate", type="primary", use_container_width=True):
     else:
         src_code = "auto" if source_lang_name == "Auto Detect" else TRANSLATE_LANGS[source_lang_name]
         tgt_code = TRANSLATE_LANGS[target_lang_name]
-        
-        with st.spinner(f"Translating to {target_lang_name}..."):
-            result = translate_text(text_to_translate, target_lang=tgt_code, source_lang=src_code)
-            st.session_state.translated_text = result
-            st.success("✅ Translation completed!")
+
+        with st.spinner(f"Translating to {target_lang_name}... (please wait, rate-limit protected)"):
+            result = translate_text(
+                text_to_translate,
+                target_lang=tgt_code,
+                source_lang=src_code
+            )
+
+            if result.startswith("Translation error:"):
+                st.error(result)
+                st.info("💡 Tip: Wait 30–60 seconds and try again. Google free Translate has a strict rate limit.")
+            else:
+                st.session_state.translated_text = result
+                st.success("✅ Translation completed!")
 
 if st.session_state.translated_text:
     st.text_area("Translated Text", st.session_state.translated_text, height=180)
