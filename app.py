@@ -19,7 +19,7 @@ import hashlib
 import random
 import string
 from urllib.parse import urljoin, urlparse
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 
 # ===== FIX for Pillow 10+ =====
 if not hasattr(Image, 'ANTIALIAS'):
@@ -195,61 +195,79 @@ def scrape_website(url: str) -> dict:
     
     return result
 
-# ====================== TRANSLATE FUNCTION (FIXED) ======================
+# ====================== TRANSLATE FUNCTION (IMPROVED WITH FALLBACK) ======================
 def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> str:
     """
-    Safe translation with rate-limit protection.
-    - Adds delay between chunks
-    - Retries on temporary rate-limit errors
-    - Returns a clear error message instead of crashing
+    Robust translation with automatic fallback.
+    1. Tries Google Translator
+    2. If rate-limited → falls back to MyMemoryTranslator (more generous)
     """
     if not text or not text.strip():
         return ""
 
-    max_retries = 3
-    delay_between_requests = 1.3   # safe under Google's 5 req/s limit
+    # Normalize language codes for MyMemory
+    lang_map = {
+        "zh-CN": "zh-CN",
+        "zh": "zh-CN",
+        "auto": "auto"
+    }
+    mm_target = lang_map.get(target_lang, target_lang)
+    mm_source = lang_map.get(source_lang, source_lang) if source_lang != "auto" else "auto"
 
-    try:
+    def _try_google(text_chunk: str) -> str:
         translator = GoogleTranslator(source=source_lang, target=target_lang)
+        return translator.translate(text_chunk)
 
-        # Keep chunks under ~4000 characters
-        chunk_size = 4000
-        chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+    def _try_mymemory(text_chunk: str) -> str:
+        try:
+            if mm_source == "auto":
+                return MyMemoryTranslator(source="auto", target=mm_target).translate(text_chunk)
+            else:
+                return MyMemoryTranslator(source=mm_source, target=mm_target).translate(text_chunk)
+        except Exception:
+            # Final fallback
+            return MyMemoryTranslator(source="en", target=mm_target).translate(text_chunk)
 
-        results = []
+    chunk_size = 4500
+    chunks = [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+    results = []
 
-        for i, chunk in enumerate(chunks):
-            success = False
-            for attempt in range(max_retries):
-                try:
-                    translated = translator.translate(chunk)
-                    results.append(translated)
-                    success = True
-                    break
-                except Exception as e:
-                    err = str(e).lower()
-                    if "too many requests" in err or "server error" in err or "rate" in err:
-                        wait_time = delay_between_requests * (attempt + 1) * 1.5
-                        time.sleep(wait_time)
-                        if attempt == max_retries - 1:
-                            return (
-                                "Translation error: Rate limit reached by Google. "
-                                "Please wait 30-60 seconds and try again."
-                            )
-                    else:
-                        return f"Translation error: {str(e)}"
+    for i, chunk in enumerate(chunks):
+        translated = None
+        last_error = None
 
-            if not success:
-                return "Translation error: Failed after several retries."
+        # --- Try Google first (up to 2 attempts) ---
+        for attempt in range(2):
+            try:
+                translated = _try_google(chunk)
+                break
+            except Exception as e:
+                last_error = str(e)
+                err_lower = last_error.lower()
+                if "too many requests" in err_lower or "rate" in err_lower or "server error" in err_lower:
+                    time.sleep(1.8 * (attempt + 1))
+                else:
+                    break  # non-rate-limit error → skip to fallback
 
-            # Always wait a bit before the next chunk
-            if i < len(chunks) - 1:
-                time.sleep(delay_between_requests)
+        # --- Fallback to MyMemory if Google failed ---
+        if translated is None:
+            try:
+                translated = _try_mymemory(chunk)
+            except Exception as e:
+                return (
+                    f"Translation error: Both Google and MyMemory failed.\n"
+                    f"Google: {last_error}\n"
+                    f"MyMemory: {str(e)}\n\n"
+                    "Please wait 1–2 minutes and try again, or use shorter text."
+                )
 
-        return " ".join(results)
+        results.append(translated)
 
-    except Exception as e:
-        return f"Translation error: {str(e)}"
+        # Small delay between chunks
+        if i < len(chunks) - 1:
+            time.sleep(0.8)
+
+    return " ".join(results)
 
 # ====================== IMAGE & VIDEO HELPERS ======================
 def enhance_image(image: Image.Image, sharpness=1.5, contrast=1.2, brightness=1.1, color=1.1) -> Image.Image:
@@ -846,7 +864,7 @@ if st.button("🔄 Translate", type="primary", use_container_width=True):
         src_code = "auto" if source_lang_name == "Auto Detect" else TRANSLATE_LANGS[source_lang_name]
         tgt_code = TRANSLATE_LANGS[target_lang_name]
 
-        with st.spinner(f"Translating to {target_lang_name}... (please wait, rate-limit protected)"):
+        with st.spinner(f"Translating to {target_lang_name}... (trying Google → fallback to MyMemory)"):
             result = translate_text(
                 text_to_translate,
                 target_lang=tgt_code,
@@ -855,7 +873,7 @@ if st.button("🔄 Translate", type="primary", use_container_width=True):
 
             if result.startswith("Translation error:"):
                 st.error(result)
-                st.info("💡 Tip: Wait 30–60 seconds and try again. Google free Translate has a strict rate limit.")
+                st.info("💡 Tip: Wait 1–2 minutes if both services are busy, or try with shorter text.")
             else:
                 st.session_state.translated_text = result
                 st.success("✅ Translation completed!")
