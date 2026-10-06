@@ -195,30 +195,16 @@ def scrape_website(url: str) -> dict:
     
     return result
 
-# ====================== TRANSLATE FUNCTION (FINAL FIXED VERSION) ======================
+# ====================== TRANSLATE FUNCTION ======================
 def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> str:
-    """
-    Robust translation with automatic fallback.
-    - Google: chunks of 4000 characters
-    - MyMemory: chunks of 450 characters (strict 500 limit)
-    """
     if not text or not text.strip():
         return ""
 
-    # Correct language codes for MyMemory
     MYMEMORY_CODES = {
-        "en": "en-GB",
-        "zh-CN": "zh-CN",
-        "zh": "zh-CN",
-        "de": "de-DE",
-        "ja": "ja-JP",
-        "fr": "fr-FR",
-        "ko": "ko-KR",
-        "id": "id-ID",
-        "es": "es-ES",
-        "ar": "ar-SA",
-        "hi": "hi-IN",
-        "auto": "auto"
+        "en": "en-GB", "zh-CN": "zh-CN", "zh": "zh-CN",
+        "de": "de-DE", "ja": "ja-JP", "fr": "fr-FR",
+        "ko": "ko-KR", "id": "id-ID", "es": "es-ES",
+        "ar": "ar-SA", "hi": "hi-IN", "auto": "auto"
     }
 
     mm_target = MYMEMORY_CODES.get(target_lang, target_lang)
@@ -236,7 +222,6 @@ def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> st
         except Exception:
             return MyMemoryTranslator(source="en-GB", target=mm_target).translate(chunk)
 
-    # ---------- Try Google first (larger chunks) ----------
     google_chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
     google_results = []
     google_success = True
@@ -264,7 +249,6 @@ def translate_text(text: str, target_lang: str, source_lang: str = "auto") -> st
     if google_success and google_results:
         return " ".join(google_results)
 
-    # ---------- Fallback to MyMemory (small chunks ≤ 450 chars) ----------
     mm_chunks = [text[i:i+450] for i in range(0, len(text), 450)]
     mm_results = []
 
@@ -514,7 +498,6 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_form
     ax.axhline(0, color="black", linewidth=0.8)
     ax.axvline(0, color="black", linewidth=0.8)
 
-    # Show formula inside the graph
     ax.text(0.02, 0.95, formula, transform=ax.transAxes,
             fontsize=12, fontweight="bold", verticalalignment='top',
             bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
@@ -554,7 +537,6 @@ def create_quadratic_graph(a=1.0, b=0.0, c=0.0, x_range=(-10, 10), points=500):
     ax.axhline(0, color="black", linewidth=0.8)
     ax.axvline(0, color="black", linewidth=0.8)
 
-    # Show formula inside the graph
     ax.text(0.02, 0.95, formula, transform=ax.transAxes,
             fontsize=12, fontweight="bold", verticalalignment='top',
             bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
@@ -600,7 +582,6 @@ def create_cubic_graph(a=1.0, b=0.0, c=0.0, d=0.0, x_range=(-10, 10), points=500
     ax.axhline(0, color="black", linewidth=0.8)
     ax.axvline(0, color="black", linewidth=0.8)
 
-    # Show formula inside the graph
     ax.text(0.02, 0.95, formula, transform=ax.transAxes,
             fontsize=12, fontweight="bold", verticalalignment='top',
             bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
@@ -641,10 +622,49 @@ def create_3d_graph(func_type="surface", resolution=50):
     ax.set_zlabel("Z-axis")
     fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
 
-    # Show formula inside the 3D graph
     ax.text2D(0.02, 0.95, formula, transform=ax.transAxes,
               fontsize=12, fontweight="bold", verticalalignment='top',
               bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
+
+    fig.tight_layout()
+    return fig
+
+
+def create_quadratic_form_3d(a=1.0, b=1.0, c=-1.0, resolution=60):
+    """
+    Plots the surface related to ax² + by² + cz² = 0
+    shown as z = ± sqrt( |a/c x² + b/c y²| )
+    """
+    if abs(c) < 1e-8:
+        c = -1.0
+
+    x = np.linspace(-5, 5, resolution)
+    y = np.linspace(-5, 5, resolution)
+    X, Y = np.meshgrid(x, y)
+
+    inside = (a / c) * X**2 + (b / c) * Y**2
+    Z_pos = np.sqrt(np.abs(inside))
+    Z_neg = -Z_pos
+
+    formula = f"ax² + by² + cz² = 0   (a={a:g}, b={b:g}, c={c:g})"
+    title = f"3D Quadratic Form: {formula}"
+
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection="3d")
+
+    surf1 = ax.plot_surface(X, Y, Z_pos, cmap="coolwarm", edgecolor="none", alpha=0.85)
+    surf2 = ax.plot_surface(X, Y, Z_neg, cmap="coolwarm", edgecolor="none", alpha=0.85)
+
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+    ax.set_xlabel("X-axis")
+    ax.set_ylabel("Y-axis")
+    ax.set_zlabel("Z-axis")
+    fig.colorbar(surf1, ax=ax, shrink=0.5, aspect=10)
+
+    ax.text2D(0.02, 0.95, formula, transform=ax.transAxes,
+              fontsize=11, fontweight="bold", verticalalignment='top',
+              bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow",
+                        edgecolor="gray", alpha=0.9))
 
     fig.tight_layout()
     return fig
@@ -1192,13 +1212,24 @@ with tab1:
     if st.button("Generate 2D Graph", use_container_width=True, key="btn_2d"):
         with st.spinner("Creating 2D graph..."):
             try:
-                fig_2d = create_2d_graph(
+                fig = create_2d_graph(
                     func_type=func_2d,
                     x_range=(x_min, x_max),
                     points=points_2d
                 )
-                st.pyplot(fig_2d)
-                plt.close(fig_2d)
+                st.pyplot(fig)
+
+                buf = BytesIO()
+                fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                buf.seek(0)
+                st.download_button(
+                    label="⬇️ Download 2D Graph (PNG)",
+                    data=buf,
+                    file_name=f"2d_{func_2d}_graph.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+                plt.close(fig)
             except Exception as e:
                 st.error(f"Error: {e}")
 
@@ -1227,13 +1258,24 @@ with tab2:
         else:
             with st.spinner("Evaluating and plotting..."):
                 try:
-                    fig_custom = create_2d_graph(
+                    fig = create_2d_graph(
                         custom_formula=custom_formula.strip(),
                         x_range=(x_min_c, x_max_c),
                         points=points_custom
                     )
-                    st.pyplot(fig_custom)
-                    plt.close(fig_custom)
+                    st.pyplot(fig)
+
+                    buf = BytesIO()
+                    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                    buf.seek(0)
+                    st.download_button(
+                        label="⬇️ Download 2D Graph (PNG)",
+                        data=buf,
+                        file_name="custom_2d_graph.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+                    plt.close(fig)
                     st.success("✅ Graph generated successfully!")
                 except Exception as e:
                     st.error(f"❌ Formula error: {e}")
@@ -1273,6 +1315,17 @@ with tab3:
                         points=points_q
                     )
                     st.pyplot(fig)
+
+                    buf = BytesIO()
+                    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                    buf.seek(0)
+                    st.download_button(
+                        label="⬇️ Download Quadratic Graph (PNG)",
+                        data=buf,
+                        file_name=f"quadratic_a{a_quad}_b{b_quad}_c{c_quad}.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
                     plt.close(fig)
                     st.success(f"✅ Plotted: y = {a_quad:g}x² + {b_quad:g}x + {c_quad:g}")
                 except Exception as e:
@@ -1302,6 +1355,17 @@ with tab3:
                         points=points_cu
                     )
                     st.pyplot(fig)
+
+                    buf = BytesIO()
+                    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                    buf.seek(0)
+                    st.download_button(
+                        label="⬇️ Download Cubic Graph (PNG)",
+                        data=buf,
+                        file_name=f"cubic_a{a_cub}_b{b_cub}_c{c_cub}_d{d_cub}.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
                     plt.close(fig)
                     st.success(f"✅ Plotted: y = {a_cub:g}x³ + {b_cub:g}x² + {c_cub:g}x + {d_cub:g}")
                 except Exception as e:
@@ -1310,18 +1374,62 @@ with tab3:
 # ---------- Tab 4: 3D ----------
 with tab4:
     st.markdown("### Create 3D Graph")
-    col_3d1, col_3d2 = st.columns(2)
-    with col_3d1:
-        func_3d = st.selectbox(
-            "3D Function Type",
-            ["surface", "wave", "saddle", "ripple"],
-            key="func_3d"
-        )
-    with col_3d2:
+
+    func_3d = st.selectbox(
+        "3D Function Type",
+        ["surface", "wave", "saddle", "ripple", "quadratic form (ax² + by² + cz² = 0)"],
+        key="func_3d"
+    )
+
+    if func_3d == "quadratic form (ax² + by² + cz² = 0)":
+        st.markdown("#### Coefficients for \( ax^{2} + by^{2} + cz^{2} = 0 \)")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            a_qf = st.number_input("a", value=1.0, step=0.1, format="%.2f", key="a_qf")
+        with c2:
+            b_qf = st.number_input("b", value=1.0, step=0.1, format="%.2f", key="b_qf")
+        with c3:
+            c_qf = st.number_input("c", value=-1.0, step=0.1, format="%.2f", key="c_qf")
+
+        resolution_qf = st.slider("Resolution", 30, 100, 60, 5, key="res_qf")
+
+        if st.button("Generate Quadratic Form Graph", type="primary", use_container_width=True, key="btn_qf"):
+            with st.spinner("Creating 3D quadratic form..."):
+                try:
+                    fig = create_quadratic_form_3d(a=a_qf, b=b_qf, c=c_qf, resolution=resolution_qf)
+                    st.pyplot(fig)
+
+                    buf = BytesIO()
+                    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                    buf.seek(0)
+                    st.download_button(
+                        label="⬇️ Download 3D Graph (PNG)",
+                        data=buf,
+                        file_name=f"quadratic_form_a{a_qf}_b{b_qf}_c{c_qf}.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+                    plt.close(fig)
+                    st.success("✅ 3D quadratic form graph generated!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    else:
         resolution_3d = st.slider("Resolution", 20, 100, 50, 5, key="res_3d")
 
-    if st.button("Generate 3D Graph", use_container_width=True, key="btn_3d"):
-        with st.spinner("Creating 3D graph..."):
-            fig_3d = create_3d_graph(func_type=func_3d, resolution=resolution_3d)
-            st.pyplot(fig_3d)
-            plt.close(fig_3d)
+        if st.button("Generate 3D Graph", use_container_width=True, key="btn_3d"):
+            with st.spinner("Creating 3D graph..."):
+                fig = create_3d_graph(func_type=func_3d, resolution=resolution_3d)
+                st.pyplot(fig)
+
+                buf = BytesIO()
+                fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                buf.seek(0)
+                st.download_button(
+                    label="⬇️ Download 3D Graph (PNG)",
+                    data=buf,
+                    file_name=f"3d_{func_3d}_graph.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+                plt.close(fig)
