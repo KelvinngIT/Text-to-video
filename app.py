@@ -386,23 +386,54 @@ def get_users_past_year() -> int:
     return len(visits)
 
 # ====================== GRAPH FUNCTIONS ======================
-def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500):
+def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_formula=None):
+    """
+    Create a 2D graph.
+    - If custom_formula is provided, it is evaluated (safe limited eval).
+    - Otherwise uses the predefined func_type.
+    """
     x = np.linspace(x_range[0], x_range[1], points)
-    if func_type == "sine":
-        y = np.sin(x)
-        title = "2D Graph: y = sin(x)"
-    elif func_type == "cosine":
-        y = np.cos(x)
-        title = "2D Graph: y = cos(x)"
-    elif func_type == "quadratic":
-        y = x**2
-        title = "2D Graph: y = x²"
-    elif func_type == "exponential":
-        y = np.exp(x / 5)
-        title = "2D Graph: y = e^(x/5)"
+
+    if custom_formula and custom_formula.strip():
+        # Safe evaluation environment
+        safe_dict = {
+            "x": x,
+            "np": np,
+            "sin": np.sin, "cos": np.cos, "tan": np.tan,
+            "arcsin": np.arcsin, "arccos": np.arccos, "arctan": np.arctan,
+            "sinh": np.sinh, "cosh": np.cosh, "tanh": np.tanh,
+            "exp": np.exp, "log": np.log, "log10": np.log10, "log2": np.log2,
+            "sqrt": np.sqrt, "abs": np.abs, "absolute": np.absolute,
+            "pi": np.pi, "e": np.e,
+            "floor": np.floor, "ceil": np.ceil, "round": np.round,
+            "sign": np.sign, "power": np.power, "maximum": np.maximum, "minimum": np.minimum,
+        }
+        try:
+            # Restrict builtins for safety
+            y = eval(custom_formula, {"__builtins__": {}}, safe_dict)
+            y = np.asarray(y, dtype=float)
+            if y.shape != x.shape:
+                raise ValueError("Formula must return an array of the same length as x")
+            title = f"2D Graph: y = {custom_formula}"
+        except Exception as e:
+            raise ValueError(f"Could not evaluate formula: {e}")
     else:
-        y = np.sin(x)
-        title = "2D Graph: y = sin(x)"
+        if func_type == "sine":
+            y = np.sin(x)
+            title = "2D Graph: y = sin(x)"
+        elif func_type == "cosine":
+            y = np.cos(x)
+            title = "2D Graph: y = cos(x)"
+        elif func_type == "quadratic":
+            y = x**2
+            title = "2D Graph: y = x²"
+        elif func_type == "exponential":
+            y = np.exp(x / 5)
+            title = "2D Graph: y = e^(x/5)"
+        else:
+            y = np.sin(x)
+            title = "2D Graph: y = sin(x)"
+
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(x, y, color="#1f77b4", linewidth=2.5)
     ax.set_title(title, fontsize=14, fontweight="bold")
@@ -418,6 +449,7 @@ def create_3d_graph(func_type="surface", resolution=50):
     x = np.linspace(-5, 5, resolution)
     y = np.linspace(-5, 5, resolution)
     X, Y = np.meshgrid(x, y)
+
     if func_type == "surface":
         Z = np.sin(np.sqrt(X**2 + Y**2))
         title = "3D Graph: z = sin(√(x² + y²))"
@@ -433,6 +465,7 @@ def create_3d_graph(func_type="surface", resolution=50):
     else:
         Z = np.sin(np.sqrt(X**2 + Y**2))
         title = "3D Graph: z = sin(√(x² + y²))"
+
     fig = plt.figure(figsize=(9, 7))
     ax = fig.add_subplot(111, projection="3d")
     surf = ax.plot_surface(X, Y, Z, cmap="viridis", edgecolor="none", alpha=0.9)
@@ -939,10 +972,11 @@ if st.session_state.video_path and os.path.exists(st.session_state.video_path):
 # ====================== GRAPHS SECTION ======================
 st.markdown("---")
 st.subheader("📈 2D & 3D Graphs")
-tab1, tab2 = st.tabs(["📊 2D Graph", "🧊 3D Graph"])
+
+tab1, tab2, tab3 = st.tabs(["📊 2D Graph (Preset)", "✏️ Custom Formula", "🧊 3D Graph"])
 
 with tab1:
-    st.markdown("### Create 2D Graph")
+    st.markdown("### Create 2D Graph (Preset)")
     col_2d1, col_2d2 = st.columns(2)
     with col_2d1:
         func_2d = st.selectbox(
@@ -953,13 +987,60 @@ with tab1:
     with col_2d2:
         points_2d = st.slider("Number of Points", 100, 1000, 500, 50, key="points_2d")
     x_min, x_max = st.slider("X Range", -20.0, 20.0, (-10.0, 10.0), key="x_range")
+
     if st.button("Generate 2D Graph", use_container_width=True, key="btn_2d"):
         with st.spinner("Creating 2D graph..."):
-            fig_2d = create_2d_graph(func_type=func_2d, x_range=(x_min, x_max), points=points_2d)
-            st.pyplot(fig_2d)
-            plt.close(fig_2d)
+            try:
+                fig_2d = create_2d_graph(
+                    func_type=func_2d,
+                    x_range=(x_min, x_max),
+                    points=points_2d
+                )
+                st.pyplot(fig_2d)
+                plt.close(fig_2d)
+            except Exception as e:
+                st.error(f"Error: {e}")
 
 with tab2:
+    st.markdown("### Custom Formula Graph")
+    st.info(
+        "Write any mathematical expression using **x**.  \n"
+        "Examples: `sin(x)`, `x**2 + 3*x - 1`, `exp(-x/5)*cos(2*x)`, `abs(x)`, `sqrt(x**2 + 1)`"
+    )
+
+    custom_formula = st.text_input(
+        "Enter formula (use variable x)",
+        value="sin(x) * exp(-abs(x)/5)",
+        placeholder="e.g. sin(x) + 0.5*cos(3*x)",
+        key="custom_formula"
+    )
+
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        points_custom = st.slider("Number of Points", 100, 2000, 800, 50, key="points_custom")
+    with col_c2:
+        x_min_c, x_max_c = st.slider(
+            "X Range", -30.0, 30.0, (-10.0, 10.0), key="x_range_custom"
+        )
+
+    if st.button("📈 Plot Custom Formula", type="primary", use_container_width=True, key="btn_custom"):
+        if not custom_formula.strip():
+            st.warning("Please enter a formula.")
+        else:
+            with st.spinner("Evaluating and plotting..."):
+                try:
+                    fig_custom = create_2d_graph(
+                        custom_formula=custom_formula.strip(),
+                        x_range=(x_min_c, x_max_c),
+                        points=points_custom
+                    )
+                    st.pyplot(fig_custom)
+                    plt.close(fig_custom)
+                    st.success("✅ Graph generated successfully!")
+                except Exception as e:
+                    st.error(f"❌ Formula error: {e}")
+
+with tab3:
     st.markdown("### Create 3D Graph")
     col_3d1, col_3d2 = st.columns(2)
     with col_3d1:
@@ -970,6 +1051,7 @@ with tab2:
         )
     with col_3d2:
         resolution_3d = st.slider("Resolution", 20, 100, 50, 5, key="res_3d")
+
     if st.button("Generate 3D Graph", use_container_width=True, key="btn_3d"):
         with st.spinner("Creating 3D graph..."):
             fig_3d = create_3d_graph(func_type=func_3d, resolution=resolution_3d)
