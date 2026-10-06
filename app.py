@@ -483,25 +483,27 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_form
             y = np.asarray(y, dtype=float)
             if y.shape != x.shape:
                 raise ValueError("Formula must return an array of the same length as x")
-            title = f"2D Graph: y = {custom_formula}"
+            formula = f"y = {custom_formula}"
+            title = f"2D Graph: {formula}"
         except Exception as e:
             raise ValueError(f"Could not evaluate formula: {e}")
     else:
         if func_type == "sine":
             y = np.sin(x)
-            title = "2D Graph: y = sin(x)"
+            formula = "y = sin(x)"
         elif func_type == "cosine":
             y = np.cos(x)
-            title = "2D Graph: y = cos(x)"
+            formula = "y = cos(x)"
         elif func_type == "quadratic":
             y = x**2
-            title = "2D Graph: y = x²"
+            formula = "y = x²"
         elif func_type == "exponential":
             y = np.exp(x / 5)
-            title = "2D Graph: y = e^(x/5)"
+            formula = "y = e^(x/5)"
         else:
             y = np.sin(x)
-            title = "2D Graph: y = sin(x)"
+            formula = "y = sin(x)"
+        title = f"2D Graph: {formula}"
 
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(x, y, color="#1f77b4", linewidth=2.5)
@@ -511,8 +513,15 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_form
     ax.grid(True, alpha=0.3)
     ax.axhline(0, color="black", linewidth=0.8)
     ax.axvline(0, color="black", linewidth=0.8)
+
+    # Show formula inside the graph
+    ax.text(0.02, 0.95, formula, transform=ax.transAxes,
+            fontsize=12, fontweight="bold", verticalalignment='top',
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
+
     fig.tight_layout()
     return fig
+
 
 def create_quadratic_graph(a=1.0, b=0.0, c=0.0, x_range=(-10, 10), points=500):
     x = np.linspace(x_range[0], x_range[1], points)
@@ -533,18 +542,26 @@ def create_quadratic_graph(a=1.0, b=0.0, c=0.0, x_range=(-10, 10), points=500):
         sign = "+" if c > 0 and terms else ""
         terms.append(f"{sign}{c:g}")
 
-    title = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
+    formula = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
+    title = f"Quadratic: {formula}"
 
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(x, y, color="#e74c3c", linewidth=2.5)
-    ax.set_title(f"Quadratic: {title}", fontsize=14, fontweight="bold")
+    ax.set_title(title, fontsize=14, fontweight="bold")
     ax.set_xlabel("X-axis")
     ax.set_ylabel("Y-axis")
     ax.grid(True, alpha=0.3)
     ax.axhline(0, color="black", linewidth=0.8)
     ax.axvline(0, color="black", linewidth=0.8)
+
+    # Show formula inside the graph
+    ax.text(0.02, 0.95, formula, transform=ax.transAxes,
+            fontsize=12, fontweight="bold", verticalalignment='top',
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
+
     fig.tight_layout()
     return fig
+
 
 def create_cubic_graph(a=1.0, b=0.0, c=0.0, d=0.0, x_range=(-10, 10), points=500):
     x = np.linspace(x_range[0], x_range[1], points)
@@ -571,18 +588,26 @@ def create_cubic_graph(a=1.0, b=0.0, c=0.0, d=0.0, x_range=(-10, 10), points=500
         sign = "+" if d > 0 and terms else ""
         terms.append(f"{sign}{d:g}")
 
-    title = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
+    formula = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
+    title = f"Cubic: {formula}"
 
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(x, y, color="#9b59b6", linewidth=2.5)
-    ax.set_title(f"Cubic: {title}", fontsize=14, fontweight="bold")
+    ax.set_title(title, fontsize=14, fontweight="bold")
     ax.set_xlabel("X-axis")
     ax.set_ylabel("Y-axis")
     ax.grid(True, alpha=0.3)
     ax.axhline(0, color="black", linewidth=0.8)
     ax.axvline(0, color="black", linewidth=0.8)
+
+    # Show formula inside the graph
+    ax.text(0.02, 0.95, formula, transform=ax.transAxes,
+            fontsize=12, fontweight="bold", verticalalignment='top',
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
+
     fig.tight_layout()
     return fig
+
 
 def create_3d_graph(func_type="surface", resolution=50):
     x = np.linspace(-5, 5, resolution)
@@ -591,19 +616,21 @@ def create_3d_graph(func_type="surface", resolution=50):
 
     if func_type == "surface":
         Z = np.sin(np.sqrt(X**2 + Y**2))
-        title = "3D Graph: z = sin(√(x² + y²))"
+        formula = "z = sin(√(x² + y²))"
     elif func_type == "wave":
         Z = np.sin(X) * np.cos(Y)
-        title = "3D Graph: z = sin(x) · cos(y)"
+        formula = "z = sin(x) · cos(y)"
     elif func_type == "saddle":
         Z = X**2 - Y**2
-        title = "3D Graph: z = x² - y² (Saddle)"
+        formula = "z = x² - y²"
     elif func_type == "ripple":
         Z = np.sin(X**2 + Y**2)
-        title = "3D Graph: z = sin(x² + y²)"
+        formula = "z = sin(x² + y²)"
     else:
         Z = np.sin(np.sqrt(X**2 + Y**2))
-        title = "3D Graph: z = sin(√(x² + y²))"
+        formula = "z = sin(√(x² + y²))"
+
+    title = f"3D Graph: {formula}"
 
     fig = plt.figure(figsize=(9, 7))
     ax = fig.add_subplot(111, projection="3d")
@@ -613,6 +640,12 @@ def create_3d_graph(func_type="surface", resolution=50):
     ax.set_ylabel("Y-axis")
     ax.set_zlabel("Z-axis")
     fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10)
+
+    # Show formula inside the 3D graph
+    ax.text2D(0.02, 0.95, formula, transform=ax.transAxes,
+              fontsize=12, fontweight="bold", verticalalignment='top',
+              bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
+
     fig.tight_layout()
     return fig
 
