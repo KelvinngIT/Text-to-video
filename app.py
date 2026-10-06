@@ -445,6 +445,100 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_form
     fig.tight_layout()
     return fig
 
+def create_quadratic_graph(a=1.0, b=0.0, c=0.0, x_range=(-10, 10), points=500):
+    """Plot y = a x² + b x + c"""
+    x = np.linspace(x_range[0], x_range[1], points)
+    y = a * x**2 + b * x + c
+
+    # Nice title with signs
+    terms = []
+    if a != 0:
+        if a == 1:
+            terms.append("x²")
+        elif a == -1:
+            terms.append("-x²")
+        else:
+            terms.append(f"{a:g}x²")
+    if b != 0:
+        if b > 0 and terms:
+            sign = "+"
+        else:
+            sign = ""
+        if abs(b) == 1:
+            terms.append(f"{sign}x" if b > 0 else "-x")
+        else:
+            terms.append(f"{sign}{b:g}x")
+    if c != 0 or not terms:
+        if c > 0 and terms:
+            sign = "+"
+        else:
+            sign = ""
+        terms.append(f"{sign}{c:g}")
+
+    title = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(x, y, color="#e74c3c", linewidth=2.5)
+    ax.set_title(f"Quadratic: {title}", fontsize=14, fontweight="bold")
+    ax.set_xlabel("X-axis")
+    ax.set_ylabel("Y-axis")
+    ax.grid(True, alpha=0.3)
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.axvline(0, color="black", linewidth=0.8)
+    fig.tight_layout()
+    return fig
+
+def create_cubic_graph(a=1.0, b=0.0, c=0.0, d=0.0, x_range=(-10, 10), points=500):
+    """Plot y = a x³ + b x² + c x + d"""
+    x = np.linspace(x_range[0], x_range[1], points)
+    y = a * x**3 + b * x**2 + c * x + d
+
+    terms = []
+    if a != 0:
+        if a == 1:
+            terms.append("x³")
+        elif a == -1:
+            terms.append("-x³")
+        else:
+            terms.append(f"{a:g}x³")
+    if b != 0:
+        if b > 0 and terms:
+            sign = "+"
+        else:
+            sign = ""
+        if abs(b) == 1:
+            terms.append(f"{sign}x²" if b > 0 else "-x²")
+        else:
+            terms.append(f"{sign}{b:g}x²")
+    if c != 0:
+        if c > 0 and terms:
+            sign = "+"
+        else:
+            sign = ""
+        if abs(c) == 1:
+            terms.append(f"{sign}x" if c > 0 else "-x")
+        else:
+            terms.append(f"{sign}{c:g}x")
+    if d != 0 or not terms:
+        if d > 0 and terms:
+            sign = "+"
+        else:
+            sign = ""
+        terms.append(f"{sign}{d:g}")
+
+    title = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(x, y, color="#9b59b6", linewidth=2.5)
+    ax.set_title(f"Cubic: {title}", fontsize=14, fontweight="bold")
+    ax.set_xlabel("X-axis")
+    ax.set_ylabel("Y-axis")
+    ax.grid(True, alpha=0.3)
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.axvline(0, color="black", linewidth=0.8)
+    fig.tight_layout()
+    return fig
+
 def create_3d_graph(func_type="surface", resolution=50):
     x = np.linspace(-5, 5, resolution)
     y = np.linspace(-5, 5, resolution)
@@ -726,6 +820,7 @@ if st.session_state.translated_text:
 # ====================== UPLOAD IMAGE ======================
 st.markdown("---")
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png", "webp"])
+
 if uploaded_file:
     original_image = Image.open(uploaded_file).convert("RGB")
     st.image(original_image, caption="Original Image", use_container_width=True)
@@ -735,11 +830,13 @@ else:
 # ====================== TEXT TO IMAGE ======================
 st.markdown("---")
 st.subheader("🎨 Text to Image (AI Generate)")
+
 prompt = st.text_area(
     "Describe the image you want to create",
     placeholder="A beautiful sunset over the ocean, cinematic lighting, highly detailed, 8k",
     height=100
 )
+
 col_a, col_b = st.columns(2)
 with col_a:
     img_width = st.selectbox("Width", [512, 768, 1024], index=1)
@@ -763,14 +860,20 @@ if st.button("✨ Generate Image from Text", type="primary", use_container_width
 if original_image or st.session_state.processed_image:
     st.markdown("---")
     st.subheader("🛠️ Image Tools")
+    
     current_img = st.session_state.processed_image or original_image
     
     with st.expander("✨ Enhance Image Quality", expanded=False):
         c1, c2, c3, c4 = st.columns(4)
-        with c1: sharpness = st.slider("Sharpness", 0.5, 3.0, 1.5, 0.1)
-        with c2: contrast = st.slider("Contrast", 0.5, 2.0, 1.2, 0.1)
-        with c3: brightness = st.slider("Brightness", 0.5, 2.0, 1.1, 0.1)
-        with c4: color = st.slider("Color", 0.5, 2.0, 1.1, 0.1)
+        with c1:
+            sharpness = st.slider("Sharpness", 0.5, 3.0, 1.5, 0.1)
+        with c2:
+            contrast = st.slider("Contrast", 0.5, 2.0, 1.2, 0.1)
+        with c3:
+            brightness = st.slider("Brightness", 0.5, 2.0, 1.1, 0.1)
+        with c4:
+            color = st.slider("Color", 0.5, 2.0, 1.1, 0.1)
+        
         if st.button("Apply Enhancement"):
             enhanced = enhance_image(current_img, sharpness, contrast, brightness, color)
             st.session_state.processed_image = enhanced
@@ -781,6 +884,7 @@ if original_image or st.session_state.processed_image:
         wm_type = st.radio("Type", ["Text", "Logo"], horizontal=True)
         position = st.selectbox("Position", ["bottom-right", "bottom-left", "top-right", "top-left", "center"])
         opacity = st.slider("Opacity", 0.1, 1.0, 0.45, 0.05)
+        
         if wm_type == "Text":
             wm_text = st.text_input("Watermark Text", "© My Brand")
             if st.button("Add Text Watermark"):
@@ -806,6 +910,7 @@ if original_image or st.session_state.processed_image:
 # ====================== IMAGE TO TEXT (OCR) ======================
 st.markdown("---")
 st.subheader("📝 Image to Text (OCR)")
+
 if st.button("🔍 Extract Text from Image", use_container_width=True):
     img_for_ocr = st.session_state.processed_image or original_image
     if img_for_ocr is None:
@@ -829,6 +934,7 @@ if st.session_state.extracted_text:
 # ====================== VIDEO SETTINGS ======================
 st.markdown("---")
 st.subheader("🎬 Video Settings")
+
 col1, col2 = st.columns(2)
 with col1:
     duration = st.slider("Duration (seconds)", 3.0, 15.0, 6.0, 0.5)
@@ -857,6 +963,7 @@ audio_source = st.radio(
     ["Upload Music", "Text-to-Speech (Narration)", "No Audio"],
     horizontal=True
 )
+
 audio_path = None
 
 if audio_source == "Upload Music":
@@ -866,6 +973,7 @@ if audio_source == "Upload Music":
         tfile.write(audio_file.read())
         audio_path = tfile.name
         tfile.close()
+
 elif audio_source == "Text-to-Speech (Narration)":
     tts_text = st.text_area(
         "Text to convert to speech",
@@ -973,8 +1081,14 @@ if st.session_state.video_path and os.path.exists(st.session_state.video_path):
 st.markdown("---")
 st.subheader("📈 2D & 3D Graphs")
 
-tab1, tab2, tab3 = st.tabs(["📊 2D Graph (Preset)", "✏️ Custom Formula", "🧊 3D Graph"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 2D Graph (Preset)",
+    "✏️ Custom Formula",
+    "📐 Quadratic & Cubic",
+    "🧊 3D Graph"
+])
 
+# ---------- Tab 1: Preset ----------
 with tab1:
     st.markdown("### Create 2D Graph (Preset)")
     col_2d1, col_2d2 = st.columns(2)
@@ -1001,27 +1115,24 @@ with tab1:
             except Exception as e:
                 st.error(f"Error: {e}")
 
+# ---------- Tab 2: Custom Formula ----------
 with tab2:
     st.markdown("### Custom Formula Graph")
     st.info(
         "Write any mathematical expression using **x**.  \n"
         "Examples: `sin(x)`, `x**2 + 3*x - 1`, `exp(-x/5)*cos(2*x)`, `abs(x)`, `sqrt(x**2 + 1)`"
     )
-
     custom_formula = st.text_input(
         "Enter formula (use variable x)",
         value="sin(x) * exp(-abs(x)/5)",
         placeholder="e.g. sin(x) + 0.5*cos(3*x)",
         key="custom_formula"
     )
-
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         points_custom = st.slider("Number of Points", 100, 2000, 800, 50, key="points_custom")
     with col_c2:
-        x_min_c, x_max_c = st.slider(
-            "X Range", -30.0, 30.0, (-10.0, 10.0), key="x_range_custom"
-        )
+        x_min_c, x_max_c = st.slider("X Range", -30.0, 30.0, (-10.0, 10.0), key="x_range_custom")
 
     if st.button("📈 Plot Custom Formula", type="primary", use_container_width=True, key="btn_custom"):
         if not custom_formula.strip():
@@ -1040,7 +1151,77 @@ with tab2:
                 except Exception as e:
                     st.error(f"❌ Formula error: {e}")
 
+# ---------- Tab 3: Quadratic & Cubic ----------
 with tab3:
+    st.markdown("### Quadratic & Cubic Polynomials")
+
+    poly_type = st.radio(
+        "Choose polynomial",
+        ["Quadratic  (y = ax² + bx + c)", "Cubic  (y = ax³ + bx² + cx + d)"],
+        horizontal=True,
+        key="poly_type"
+    )
+
+    st.markdown("---")
+
+    if "Quadratic" in poly_type:
+        st.markdown("#### Coefficients for \( y = ax^{2} + bx + c \)")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            a_quad = st.number_input("a (x²)", value=1.0, step=0.1, format="%.3f", key="a_quad")
+        with c2:
+            b_quad = st.number_input("b (x)", value=0.0, step=0.1, format="%.3f", key="b_quad")
+        with c3:
+            c_quad = st.number_input("c (constant)", value=0.0, step=0.1, format="%.3f", key="c_quad")
+
+        x_min_q, x_max_q = st.slider("X Range", -20.0, 20.0, (-10.0, 10.0), key="x_range_quad")
+        points_q = st.slider("Number of Points", 100, 2000, 800, 50, key="points_quad")
+
+        if st.button("📈 Plot Quadratic", type="primary", use_container_width=True, key="btn_quad"):
+            with st.spinner("Plotting quadratic..."):
+                try:
+                    fig = create_quadratic_graph(
+                        a=a_quad, b=b_quad, c=c_quad,
+                        x_range=(x_min_q, x_max_q),
+                        points=points_q
+                    )
+                    st.pyplot(fig)
+                    plt.close(fig)
+                    st.success(f"✅ Plotted: y = {a_quad:g}x² + {b_quad:g}x + {c_quad:g}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    else:  # Cubic
+        st.markdown("#### Coefficients for \( y = ax^{3} + bx^{2} + cx + d \)")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            a_cub = st.number_input("a (x³)", value=1.0, step=0.1, format="%.3f", key="a_cub")
+        with c2:
+            b_cub = st.number_input("b (x²)", value=0.0, step=0.1, format="%.3f", key="b_cub")
+        with c3:
+            c_cub = st.number_input("c (x)", value=0.0, step=0.1, format="%.3f", key="c_cub")
+        with c4:
+            d_cub = st.number_input("d (constant)", value=0.0, step=0.1, format="%.3f", key="d_cub")
+
+        x_min_cu, x_max_cu = st.slider("X Range", -15.0, 15.0, (-8.0, 8.0), key="x_range_cub")
+        points_cu = st.slider("Number of Points", 100, 2000, 800, 50, key="points_cub")
+
+        if st.button("📈 Plot Cubic", type="primary", use_container_width=True, key="btn_cub"):
+            with st.spinner("Plotting cubic..."):
+                try:
+                    fig = create_cubic_graph(
+                        a=a_cub, b=b_cub, c=c_cub, d=d_cub,
+                        x_range=(x_min_cu, x_max_cu),
+                        points=points_cu
+                    )
+                    st.pyplot(fig)
+                    plt.close(fig)
+                    st.success(f"✅ Plotted: y = {a_cub:g}x³ + {b_cub:g}x² + {c_cub:g}x + {d_cub:g}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+# ---------- Tab 4: 3D ----------
+with tab4:
     st.markdown("### Create 3D Graph")
     col_3d1, col_3d2 = st.columns(2)
     with col_3d1:
