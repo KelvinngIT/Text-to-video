@@ -475,19 +475,57 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_form
         if func_type == "sine":
             y = np.sin(x)
             formula = "y = sin(x)"
+            type_name = "Sine Wave"
         elif func_type == "cosine":
             y = np.cos(x)
             formula = "y = cos(x)"
+            type_name = "Cosine Wave"
         elif func_type == "quadratic":
             y = x**2
             formula = "y = x²"
+            type_name = "Parabola"
         elif func_type == "exponential":
             y = np.exp(x / 5)
             formula = "y = e^(x/5)"
+            type_name = "Exponential"
+        elif func_type == "absolute":
+            y = np.abs(x)
+            formula = "y = |x|"
+            type_name = "Absolute Value"
+        elif func_type == "sqrt":
+            # Avoid negative values for real square root
+            y = np.sqrt(np.maximum(x, 0))
+            formula = "y = √x"
+            type_name = "Square Root"
+        elif func_type == "tangent":
+            y = np.tan(x)
+            # Limit extreme values for better display
+            y = np.clip(y, -10, 10)
+            formula = "y = tan(x)"
+            type_name = "Tangent"
+        elif func_type == "log":
+            y = np.log(np.maximum(x, 1e-6))  # avoid log(0) or negative
+            formula = "y = log(x)"
+            type_name = "Logarithm"
+        elif func_type == "reciprocal":
+            y = 1 / np.where(np.abs(x) < 1e-6, 1e-6, x)
+            y = np.clip(y, -20, 20)
+            formula = "y = 1/x"
+            type_name = "Reciprocal"
+        elif func_type == "cubic":
+            y = x**3
+            formula = "y = x³"
+            type_name = "Cubic"
+        elif func_type == "gaussian":
+            y = np.exp(-x**2)
+            formula = "y = e^(-x²)"
+            type_name = "Gaussian (Bell Curve)"
         else:
             y = np.sin(x)
             formula = "y = sin(x)"
-        title = f"2D Graph: {formula}"
+            type_name = "Sine Wave"
+
+        title = f"2D Graph ({type_name}): {formula}"
 
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(x, y, color="#1f77b4", linewidth=2.5)
@@ -498,90 +536,7 @@ def create_2d_graph(func_type="sine", x_range=(-10, 10), points=500, custom_form
     ax.axhline(0, color="black", linewidth=0.8)
     ax.axvline(0, color="black", linewidth=0.8)
 
-    ax.text(0.02, 0.95, formula, transform=ax.transAxes,
-            fontsize=12, fontweight="bold", verticalalignment='top',
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
-
-    fig.tight_layout()
-    return fig
-
-
-def create_quadratic_graph(a=1.0, b=0.0, c=0.0, x_range=(-10, 10), points=500):
-    x = np.linspace(x_range[0], x_range[1], points)
-    y = a * x**2 + b * x + c
-
-    terms = []
-    if a != 0:
-        if a == 1: terms.append("x²")
-        elif a == -1: terms.append("-x²")
-        else: terms.append(f"{a:g}x²")
-    if b != 0:
-        sign = "+" if b > 0 and terms else ""
-        if abs(b) == 1:
-            terms.append(f"{sign}x" if b > 0 else "-x")
-        else:
-            terms.append(f"{sign}{b:g}x")
-    if c != 0 or not terms:
-        sign = "+" if c > 0 and terms else ""
-        terms.append(f"{sign}{c:g}")
-
-    formula = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
-    title = f"Quadratic: {formula}"
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(x, y, color="#e74c3c", linewidth=2.5)
-    ax.set_title(title, fontsize=14, fontweight="bold")
-    ax.set_xlabel("X-axis")
-    ax.set_ylabel("Y-axis")
-    ax.grid(True, alpha=0.3)
-    ax.axhline(0, color="black", linewidth=0.8)
-    ax.axvline(0, color="black", linewidth=0.8)
-
-    ax.text(0.02, 0.95, formula, transform=ax.transAxes,
-            fontsize=12, fontweight="bold", verticalalignment='top',
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
-
-    fig.tight_layout()
-    return fig
-
-
-def create_cubic_graph(a=1.0, b=0.0, c=0.0, d=0.0, x_range=(-10, 10), points=500):
-    x = np.linspace(x_range[0], x_range[1], points)
-    y = a * x**3 + b * x**2 + c * x + d
-
-    terms = []
-    if a != 0:
-        if a == 1: terms.append("x³")
-        elif a == -1: terms.append("-x³")
-        else: terms.append(f"{a:g}x³")
-    if b != 0:
-        sign = "+" if b > 0 and terms else ""
-        if abs(b) == 1:
-            terms.append(f"{sign}x²" if b > 0 else "-x²")
-        else:
-            terms.append(f"{sign}{b:g}x²")
-    if c != 0:
-        sign = "+" if c > 0 and terms else ""
-        if abs(c) == 1:
-            terms.append(f"{sign}x" if c > 0 else "-x")
-        else:
-            terms.append(f"{sign}{c:g}x")
-    if d != 0 or not terms:
-        sign = "+" if d > 0 and terms else ""
-        terms.append(f"{sign}{d:g}")
-
-    formula = "y = " + " ".join(terms).replace("+-", "- ").replace("++", "+")
-    title = f"Cubic: {formula}"
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(x, y, color="#9b59b6", linewidth=2.5)
-    ax.set_title(title, fontsize=14, fontweight="bold")
-    ax.set_xlabel("X-axis")
-    ax.set_ylabel("Y-axis")
-    ax.grid(True, alpha=0.3)
-    ax.axhline(0, color="black", linewidth=0.8)
-    ax.axvline(0, color="black", linewidth=0.8)
-
+    # Show formula + type inside the graph
     ax.text(0.02, 0.95, formula, transform=ax.transAxes,
             fontsize=12, fontweight="bold", verticalalignment='top',
             bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", edgecolor="gray", alpha=0.9))
